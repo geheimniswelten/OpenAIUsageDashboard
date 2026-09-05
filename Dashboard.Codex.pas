@@ -28,7 +28,6 @@ type
     FReadBuffer: TBytes;
     FRpcId: Int64;
     function ProcessIsRunning: Boolean;
-    function FindLauncher(out APath: string): Boolean;
     procedure StartServer;
     procedure StopServer;
     procedure EnsureServer;
@@ -38,6 +37,10 @@ type
     function ReadResponse(const ARequestId: Int64;
       const ATimeoutMilliseconds: Cardinal = 15000): string;
     function InvokeRequest(const AMethod: string): string;
+    {$ENDIF}
+  protected
+    {$IF Defined(MSWINDOWS)}
+    function FindLauncher(out APath: string): Boolean;
     procedure ApplyRateLimits(ASnapshot: TUsageSnapshot;
       const AJson: string);
     procedure ApplyUsage(ASnapshot: TUsageSnapshot; const AJson: string);
@@ -237,6 +240,8 @@ var
   SearchDirs: TStringList;
   AppData, LocalData, PathValue, Dir, Candidate: string;
   I, J: Integer;
+  VersionDirs: TArray<string>;
+  TempDir: string;
 
   procedure AddCandidate(const AValue: string);
   begin
@@ -256,12 +261,39 @@ begin
     AddCandidate(TPath.Combine(ExtractFilePath(ParamStr(0)), 'codex.cmd'));
 
     AppData := GetEnvironmentVariable('APPDATA');
-    if AppData <> '' then
-      AddCandidate(TPath.Combine(AppData, 'npm\codex.cmd'));
     LocalData := GetEnvironmentVariable('LOCALAPPDATA');
     if LocalData <> '' then
+    begin
+      { Desktop installations put their current CLI in a versioned directory.
+        Explorer-launched dashboards do not inherit the desktop app's PATH.
+        Prefer this CLI to an older, separately installed npm launcher. }
+      Dir := TPath.Combine(LocalData, 'OpenAI\Codex\bin');
+      AddCandidate(TPath.Combine(Dir, 'codex.exe'));
+      if TDirectory.Exists(Dir) then
+      begin
+        try
+          VersionDirs := TDirectory.GetDirectories(Dir);
+          for I := 0 to High(VersionDirs) - 1 do
+            for J := I + 1 to High(VersionDirs) do
+              if TDirectory.GetLastWriteTimeUtc(VersionDirs[J]) >
+                 TDirectory.GetLastWriteTimeUtc(VersionDirs[I]) then
+              begin
+                TempDir := VersionDirs[I];
+                VersionDirs[I] := VersionDirs[J];
+                VersionDirs[J] := TempDir;
+              end;
+          for Dir in VersionDirs do
+            AddCandidate(TPath.Combine(Dir, 'codex.exe'));
+        except
+          { Continue with the other installation locations if a version
+            directory is removed or inaccessible during a desktop update. }
+        end;
+      end;
       AddCandidate(TPath.Combine(LocalData,
         'Programs\OpenAI\Codex\bin\codex.exe'));
+    end;
+    if AppData <> '' then
+      AddCandidate(TPath.Combine(AppData, 'npm\codex.cmd'));
 
     PathValue := GetEnvironmentVariable('PATH');
     SearchDirs.StrictDelimiter := True;
@@ -709,7 +741,8 @@ var
   N: Integer;
 begin
   Window := JsonObjectValue(ALimit, APropertyName);
-  if (Window = nil) or (Window.GetValue('usedPercent') = nil) then
+  if (Window = nil) or
+     not (Window.GetValue('usedPercent') is TJSONNumber) then
     Exit;
 
   Used := EnsureRange(JsonFloat(Window, 'usedPercent'), 0.0, 100.0);
@@ -780,6 +813,7 @@ var
   I: Integer;
   CreditCount: Int64;
 begin
+  ASnapshot.CodexRateLimitsAvailable := False;
   Parsed := TJSONObject.ParseJSONValue(AJson);
   try
     if not (Parsed is TJSONObject) then
@@ -793,8 +827,10 @@ begin
       MapObject := TJSONObject(Value);
       for I := 0 to MapObject.Count - 1 do
         ParseLimitObject(Limits, MapObject.Pairs[I].JsonValue);
-    end
-    else
+    end;
+    { Some servers return an empty or incomplete multi-bucket view alongside
+      a usable legacy window. Do not discard that backward-compatible value. }
+    if Length(Limits) = 0 then
     begin
       Value := Root.GetValue('rateLimits');
       if Value is TJSONArray then
@@ -817,6 +853,9 @@ begin
 
     SortLimits(Limits);
     MergeCodexLimits(ASnapshot, Limits);
+    ASnapshot.CodexRateLimitsAvailable := Length(Limits) > 0;
+    if not ASnapshot.CodexRateLimitsAvailable then
+      raise EConvertError.Create('Codex liefert derzeit keine verfügbaren Limitwerte.');
 
     Credits := JsonObjectValue(Root, 'rateLimitResetCredits');
     if Credits <> nil then
@@ -849,47 +888,61 @@ var
   Buckets: TJSONArray;
   I: Integer;
   BucketDay, TodayValue, SevenDayStart, MonthStart: TDateTime;
-  Tokens, SevenDayTokens, MonthTokens: Int64;
+  Tokens, TodayTokens, SevenDayTokens, MonthTokens: Int64;
+  LifetimeAvailable, DailyAvailable: Boolean;
 begin
+  ASnapshot.CodexUsageAvailable := False;
+  ASnapshot.CodexLifetimeAvailable := False;
+  ASnapshot.CodexDailyUsageAvailable := False;
   Parsed := TJSONObject.ParseJSONValue(AJson);
   try
     if not (Parsed is TJSONObject) then
       raise EConvertError.Create('Ungültige Codex-Nutzungsantwort');
     Root := TJSONObject(Parsed);
     Summary := JsonObjectValue(Root, 'summary');
-    if Summary <> nil then
+    LifetimeAvailable := (Summary <> nil) and
+      (Summary.GetValue('lifetimeTokens') is TJSONNumber);
+    if LifetimeAvailable then
       ASnapshot.CodexLifetimeTokens := JsonInt64(Summary, 'lifetimeTokens');
 
     TodayValue := Date;
     SevenDayStart := IncDay(TodayValue, -6);
     MonthStart := StartOfTheMonth(TodayValue);
-    ASnapshot.CodexTodayTokens := 0;
+    TodayTokens := 0;
     SevenDayTokens := 0;
     MonthTokens := 0;
 
     BucketsValue := Root.GetValue('dailyUsageBuckets');
+    DailyAvailable := BucketsValue is TJSONArray;
     if BucketsValue is TJSONArray then
     begin
       Buckets := TJSONArray(BucketsValue);
       for I := 0 to Buckets.Count - 1 do
       begin
         if not (Buckets.Items[I] is TJSONObject) then
-          Continue;
+          raise EConvertError.Create('Ungültiger Codex-Tageswert');
         Bucket := TJSONObject(Buckets.Items[I]);
         if not TryParseUsageDay(JsonString(Bucket, 'startDate', ''),
-          BucketDay) then
-          Continue;
+          BucketDay) or not (Bucket.GetValue('tokens') is TJSONNumber) then
+          raise EConvertError.Create('Unvollständiger Codex-Tageswert');
         Tokens := Max(Int64(0), JsonInt64(Bucket, 'tokens'));
         if SameDate(BucketDay, TodayValue) then
-          ASnapshot.CodexTodayTokens := ASnapshot.CodexTodayTokens + Tokens;
+          TodayTokens := TodayTokens + Tokens;
         if (BucketDay >= SevenDayStart) and (BucketDay <= TodayValue) then
           SevenDayTokens := SevenDayTokens + Tokens;
         if (BucketDay >= MonthStart) and (BucketDay <= TodayValue) then
           MonthTokens := MonthTokens + Tokens;
       end;
     end;
+    ASnapshot.CodexTodayTokens := TodayTokens;
     ASnapshot.CodexSevenDayTokens := SevenDayTokens;
     ASnapshot.CodexMonthTokens := MonthTokens;
+    ASnapshot.CodexLifetimeAvailable := LifetimeAvailable;
+    ASnapshot.CodexDailyUsageAvailable := DailyAvailable;
+    ASnapshot.CodexUsageAvailable := ASnapshot.CodexLifetimeAvailable or
+      ASnapshot.CodexDailyUsageAvailable;
+    if not ASnapshot.CodexUsageAvailable then
+      raise EConvertError.Create('Codex liefert derzeit keine verfügbaren Tokenstatistiken.');
   finally
     Parsed.Free;
   end;
@@ -916,6 +969,12 @@ begin
   {$IF Defined(MSWINDOWS)}
   FLock.Acquire;
   try
+    ASnapshot.CodexUsageAvailable := False;
+    ASnapshot.CodexLifetimeAvailable := False;
+    ASnapshot.CodexDailyUsageAvailable := False;
+    ASnapshot.CodexRateLimitsAvailable := False;
+    ASnapshot.CodexError := '';
+    MergeCodexLimits(ASnapshot, nil);
     TInterlocked.Exchange(FStopRequested, 0);
     try
       EnsureServer;
@@ -938,15 +997,19 @@ begin
       RateOK := True;
     except
       on E: Exception do
-        RateError := E.Message;
+        RateError := 'Codex-Limits: ' + E.Message;
     end;
     try
       UsageJson := InvokeRequest('account/usage/read');
       ApplyUsage(ASnapshot, UsageJson);
       UsageOK := True;
+      if not ASnapshot.CodexLifetimeAvailable then
+        UsageError := 'Codex-Nutzung: Gesamttokens derzeit nicht verfügbar.'
+      else if not ASnapshot.CodexDailyUsageAvailable then
+        UsageError := 'Codex-Nutzung: Tagesstatistiken derzeit nicht verfügbar.';
     except
       on E: Exception do
-        UsageError := E.Message;
+        UsageError := 'Codex-Nutzung: ' + E.Message;
     end;
 
     Result := RateOK or UsageOK;
@@ -966,6 +1029,7 @@ begin
       ASnapshot.SourceText := ASnapshot.SourceText + 'lokaler Codex App Server';
     end;
   finally
+    ASnapshot.CodexError := AError;
     FLock.Release;
   end;
   {$ELSE}

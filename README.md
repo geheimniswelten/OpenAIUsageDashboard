@@ -11,7 +11,7 @@ Browser werden zur Laufzeit nicht benötigt.
 - bis zu fünf Top-Modelle in einem kompakten 2×3-Kartenraster sowie weitere
   API-Dienste (Bilder, Embeddings, Web-/Dateisuche, Audio, Code Interpreter,
   Vector Stores und Moderation)
-- vergrößerte Modellnamen und deutlich vergrößerte Anfrage-/Tokenwerte;
+- Modellnamen etwa 25 %, Anfragen 80 % und Tokens 50 % größer als ursprünglich;
   die Zusatzdienste verwenden dieselbe Caption-/Wert-/Detail-Typografie wie die
   Codex-Kennzahlen
 - Ausgabenlimit mit Prozentbalken und Limitlinie im Kostendiagramm
@@ -60,6 +60,12 @@ einem Touch-Gerät vollständig schließen.
    setzen. Ohne Token lauscht der Snapshot-Server nur auf `127.0.0.1`; mit Token
    auf allen lokalen Adressen, standardmäßig TCP-Port `8787`.
 
+Der Viewer-Token ist ein selbst gewähltes gemeinsames Kennwort für den
+Statistikabruf. Bei reinem Windows-Betrieb kann das Feld leer bleiben. Bei einem
+Android-Viewer auf beiden Geräten denselben Wert eintragen, beispielsweise eine
+mit dem Passwortmanager erzeugte Zeichenfolge mit 32 Zeichen. Es ist kein
+OpenAI-API-Key und wird nicht von OpenAI vergeben.
+
 Der Admin-Key wird nicht in der INI gespeichert. Die Speicherung erfolgt in der
 vereinbarten Kette:
 
@@ -77,9 +83,22 @@ nicht freigegeben. Damit wird insbesondere der frühere Schreibzugriff auf Adres
 `0x000C` beim 12-Byte-Nonce vermieden.
 
 Für Codex muss die lokale Codex-CLI installiert und angemeldet sein. Die App sucht
-`codex.exe` beziehungsweise `codex.cmd`, startet `codex app-server` unsichtbar und
+auch die mit der Desktop-App ausgelieferte CLI unter
+`%LOCALAPPDATA%\OpenAI\Codex\bin\<Version>\codex.exe`, sodass ein Start aus dem
+Explorer ohne Codex im PATH funktioniert. Sie startet `codex app-server` unsichtbar und
 hält den Prozess für spätere Aktualisierungen offen. Ein Codex-Fehler verhindert
 nicht die Anzeige der OpenAI-API-Daten.
+
+Fehlende Codex-Werte erscheinen als `–`; ein tatsächlich gemeldeter Nullwert
+bleibt `0`. Gesamttokens und Tagesstatistiken können unabhängig verfügbar sein.
+Die konkrete Fehlermeldung steht unten in den Einstellungen (bei Bedarf scrollen).
+Der Header unterscheidet eine teilweise von einer vollständig fehlgeschlagenen
+Codex-Abfrage.
+
+API-Kosten, Tagesbuckets und Abrechnungsgrenzen werden konsistent in UTC
+ausgewertet. Liefert die API für heute noch keinen Kostenbetrag, steht dort
+`–` mit entsprechendem Hinweis. Kosten können später als Anfragen eintreffen.
+Codex-Tokenstatistiken verwenden weiterhin den lokalen Kalendertag.
 
 ## Android mit Windows-Sammler
 
@@ -151,12 +170,19 @@ OtherDisplayIdleMinutes=10
   mit dem Android64-Compiler übersetzt und zur ARM64-Shared-Library gelinkt.
 - `tests/Dashboard.Tests.dpr` prüft Prognose (inklusive Ausschluss des heutigen
   Tages), JSON-Roundtrip und authentifizierten Snapshot-Transport.
+- `tests/OpenAI.Tests.dpr` prüft ohne API-Aufruf UTC-Tages-/Monatsgrenzen,
+  Anfragezeiträume, leere oder fehlende Kostenbuckets gegenüber gemeldeten Nullen
+  sowie Kalenderdaten beim Übertragen auf einen Viewer.
+- `tests/Codex.Tests.dpr` prüft ohne Serveraufruf Teilantworten, fehlende bzw.
+  null-Werte, Tagesaggregation und den Rückgriff auf die Legacy-Limitantwort.
 - `tests/Secrets.Tests.dpr` prüft ohne Credential-Schreibzugriff den
   AES-256-GCM-Rundlauf, den sicheren WinRT-Pufferzugriff sowie die Ablehnung eines
   manipulierten Authentifizierungstags. Der optionale DPAPI-Teil benötigt einen
   normalen interaktiven Windows-Benutzerkontext.
 - `tests/Codex.Smoke.dpr` ist ein optionaler Live-Test gegen eine lokal angemeldete
-  Codex-CLI.
+  Codex-CLI; `--discover` prüft nur die Programmsuche. Diese findet hier die
+  Desktop-CLI auch bei reduziertem PATH. Der angemeldete Liveabruf konnte in der
+  Codex-Sandbox wegen Schreibbeschränkungen des Benutzerprofils nicht geprüft werden.
 
 Eine Android-APK wird anschließend von RAD Studio mit der lokal konfigurierten
 SDK-/NDK-Toolchain und Signierung erzeugt.

@@ -7,26 +7,65 @@ uses
   Dashboard.Model in '..\Dashboard.Model.pas',
   Dashboard.Codex in '..\Dashboard.Codex.pas';
 
+type
+  TDiagnosticClient = class(TCodexClient)
+  public
+    function Discover(out APath: string): Boolean;
+  end;
+
+function TDiagnosticClient.Discover(out APath: string): Boolean;
+begin
+  Result := FindLauncher(APath);
+end;
+
 var
   Snapshot: TUsageSnapshot;
-  Client: TCodexClient;
-  ErrorText: string;
+  Client: TDiagnosticClient;
+  ErrorText, LauncherPath: string;
 
 begin
-  Snapshot := TUsageSnapshot.Create;
-  Client := TCodexClient.Create;
   try
-    Snapshot.MakeDemo;
-    if Client.Enrich(Snapshot, ErrorText) then
-      Writeln('CODEX_SMOKE_OK limits=', Length(Snapshot.RateLimits),
-        ' lifetime_tokens=', Snapshot.CodexLifetimeTokens)
-    else
-    begin
-      Writeln('CODEX_SMOKE_UNAVAILABLE ', ErrorText);
-      ExitCode := 2;
+    Snapshot := TUsageSnapshot.Create;
+    Client := TDiagnosticClient.Create;
+    try
+      if SameText(ParamStr(1), '--discover') then
+      begin
+        if Client.Discover(LauncherPath) then
+          Writeln('CODEX_LAUNCHER_FOUND ', LauncherPath)
+        else
+        begin
+          Writeln('CODEX_LAUNCHER_UNAVAILABLE');
+          ExitCode := 2;
+        end;
+        Exit;
+      end;
+      if Client.Enrich(Snapshot, ErrorText) then
+      begin
+        if ErrorText = '' then
+          Writeln('CODEX_SMOKE_OK')
+        else
+        begin
+          Writeln('CODEX_SMOKE_PARTIAL ', ErrorText);
+          ExitCode := 2;
+        end;
+        Writeln('limits_available=', Snapshot.CodexRateLimitsAvailable,
+          ' lifetime_available=', Snapshot.CodexLifetimeAvailable,
+          ' daily_usage_available=', Snapshot.CodexDailyUsageAvailable);
+      end
+      else
+      begin
+        Writeln('CODEX_SMOKE_UNAVAILABLE ', ErrorText);
+        ExitCode := 2;
+      end;
+    finally
+      Client.Free;
+      Snapshot.Free;
     end;
-  finally
-    Client.Free;
-    Snapshot.Free;
+  except
+    on E: Exception do
+    begin
+      Writeln('CODEX_SMOKE_FAILED ', E.ClassName, ': ', E.Message);
+      ExitCode := 1;
+    end;
   end;
 end.

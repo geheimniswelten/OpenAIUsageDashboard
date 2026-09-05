@@ -352,12 +352,17 @@ begin
         (Plot.Height - 48 * FScale) * (Actual[I].Amount / BarMax);
       BarRect := TRectF.Create(X + CellWidth * 0.24, Y,
         X + CellWidth * 0.76, Plot.Bottom - 25 * FScale);
-      ACanvas.Fill.Color := IfThen(SameDate(Actual[I].Day, Date), CLime, CGreen);
+      ACanvas.Fill.Color := IfThen(SameDate(Actual[I].Day,
+        DateOf(TTimeZone.Local.ToUniversalTime(FSnapshot.LastUpdated))), CLime, CGreen);
       ACanvas.FillRect(BarRect, 5 * FScale, 5 * FScale, [TCorner.TopLeft,
         TCorner.TopRight], 0.88);
-      Text(ACanvas, TRectF.Create(X, Plot.Top, X + CellWidth, Plot.Top + 20 * FScale),
-        FormatFloat('0.00', Actual[I].Amount, GermanFormatSettings), 8,
-        CMuted, False, TTextAlign.Center);
+      if Actual[I].HasCostData or (Actual[I].Amount <> 0) then
+        Text(ACanvas, TRectF.Create(X, Plot.Top, X + CellWidth, Plot.Top + 20 * FScale),
+          FormatFloat('0.00', Actual[I].Amount, GermanFormatSettings), 8,
+          CMuted, False, TTextAlign.Center)
+      else
+        Text(ACanvas, TRectF.Create(X, Plot.Top, X + CellWidth, Plot.Top + 20 * FScale),
+          '–', 8, CMuted, False, TTextAlign.Center);
       LabelRect := TRectF.Create(X, Plot.Bottom - 22 * FScale,
         X + CellWidth, Plot.Bottom);
       Text(ACanvas, LabelRect, FormatDateTime('dd.mm.', Actual[I].Day),
@@ -583,7 +588,7 @@ begin
         CompactNumber(FSnapshot.Models[ModelIndex].Requests), 25.2, CBlue,
         True, TTextAlign.Center);
       Text(ACanvas, TokenRect,
-        CompactNumber(FSnapshot.Models[ModelIndex].Tokens), 25.2, CLime,
+        CompactNumber(FSnapshot.Models[ModelIndex].Tokens), 21, CLime,
         True, TTextAlign.Center);
     end
     else
@@ -738,6 +743,31 @@ procedure TDashboardRenderer.DrawCodex(const ACanvas: TCanvas;
   const ARect: TRectF);
 var
   Gap, W: Single;
+
+  function TokenValue(const AValue: Int64; const AAvailable: Boolean): string;
+  begin
+    if AAvailable then
+      Result := CompactNumber(AValue)
+    else
+      Result := '–';
+  end;
+
+  function UsageDetail(const AText: string; const AAvailable: Boolean): string;
+  begin
+    if AAvailable then
+      Result := AText
+    else
+      Result := 'Abfrage nicht verfügbar';
+  end;
+
+  function MonthDetail: string;
+  begin
+    if FSnapshot.CodexRateLimitsAvailable then
+      Result := 'Reset-Credits: ' + IntToStr(FSnapshot.CodexResetCredits)
+    else
+      Result := 'aktueller Kalendermonat';
+  end;
+
 begin
   Box(ACanvas, ARect, CBluePanel, CBlueBorder);
   Text(ACanvas, TRectF.Create(ARect.Left + 15 * FScale, ARect.Top + 5 * FScale,
@@ -747,19 +777,24 @@ begin
   W := (ARect.Width - 30 * FScale - Gap * 3) / 4;
   DrawKpi(ACanvas, TRectF.Create(ARect.Left + 15 * FScale, ARect.Top + 38 * FScale,
     ARect.Left + 15 * FScale + W, ARect.Bottom - 10 * FScale),
-    'Tokens gesamt', CompactNumber(FSnapshot.CodexLifetimeTokens), 'lokaler Codex App Server');
+    'Tokens gesamt', TokenValue(FSnapshot.CodexLifetimeTokens,
+      FSnapshot.CodexLifetimeAvailable), UsageDetail('lokaler Codex App Server',
+      FSnapshot.CodexLifetimeAvailable));
   DrawKpi(ACanvas, TRectF.Create(ARect.Left + 15 * FScale + (W + Gap),
     ARect.Top + 38 * FScale, ARect.Left + 15 * FScale + (W + Gap) + W,
-    ARect.Bottom - 10 * FScale), 'Tokens heute', CompactNumber(FSnapshot.CodexTodayTokens),
-    'lokaler Kalendertag');
+    ARect.Bottom - 10 * FScale), 'Tokens heute', TokenValue(FSnapshot.CodexTodayTokens,
+      FSnapshot.CodexDailyUsageAvailable), UsageDetail('lokaler Kalendertag',
+      FSnapshot.CodexDailyUsageAvailable));
   DrawKpi(ACanvas, TRectF.Create(ARect.Left + 15 * FScale + 2 * (W + Gap),
     ARect.Top + 38 * FScale, ARect.Left + 15 * FScale + 2 * (W + Gap) + W,
     ARect.Bottom - 10 * FScale), 'Tokens · 7 Tage',
-    CompactNumber(FSnapshot.CodexSevenDayTokens), 'rollierend');
+    TokenValue(FSnapshot.CodexSevenDayTokens, FSnapshot.CodexDailyUsageAvailable),
+    UsageDetail('rollierend', FSnapshot.CodexDailyUsageAvailable));
   DrawKpi(ACanvas, TRectF.Create(ARect.Left + 15 * FScale + 3 * (W + Gap),
     ARect.Top + 38 * FScale, ARect.Right - 15 * FScale, ARect.Bottom - 10 * FScale),
-    'Tokens · Monat', CompactNumber(FSnapshot.CodexMonthTokens),
-    'Reset-Credits: ' + IntToStr(FSnapshot.CodexResetCredits));
+    'Tokens · Monat', TokenValue(FSnapshot.CodexMonthTokens,
+      FSnapshot.CodexDailyUsageAvailable), UsageDetail(MonthDetail,
+      FSnapshot.CodexDailyUsageAvailable));
 end;
 
 procedure TDashboardRenderer.Render(const ACanvas: TCanvas; const ARect: TRectF);
@@ -790,8 +825,12 @@ begin
       ARect.Left + Margin + I * (KpiW + Gap) + KpiW, Top + KpiH);
   DrawKpi(ACanvas, KpiRects[0], 'Kosten · letzte 30 Tage',
     FormatMoney(FSnapshot.Cost30Days, FSnapshot.Currency), 'alle Projekte der Organisation', True);
-  DrawKpi(ACanvas, KpiRects[1], 'Kosten · heute (UTC)',
-    FormatMoney(FSnapshot.CostToday, FSnapshot.Currency), 'heute nicht in der Prognosesteigung');
+  if FSnapshot.CostTodayAvailable then
+    DrawKpi(ACanvas, KpiRects[1], 'Kosten · heute (UTC)',
+      FormatMoney(FSnapshot.CostToday, FSnapshot.Currency), 'Kosten können zeitverzögert eintreffen')
+  else
+    DrawKpi(ACanvas, KpiRects[1], 'Kosten · heute (UTC)', '–',
+      'Heute noch keine Kosten gemeldet');
   DrawKpi(ACanvas, KpiRects[2], 'Anfragen · letzte 7 Tage',
     CompactNumber(FSnapshot.Requests7Days), CompactNumber(FSnapshot.RequestsToday) + ' heute');
   DrawKpi(ACanvas, KpiRects[3], 'Tokens · letzte 7 Tage',

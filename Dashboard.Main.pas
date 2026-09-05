@@ -42,6 +42,7 @@ type
     FDisplayValues: TArray<Integer>;
     FIdleEdit: TEdit;
     FMessageLabel: TLabel;
+    FDataStatusLabel: TLabel;
     FSnapshot: TUsageSnapshot;
     FSettings: TDashboardSettings;
     FRenderer: TDashboardRenderer;
@@ -324,9 +325,10 @@ begin
   AddSettingsLabel('Schreibgeschützter Windows-Sammler', 28, 132, 604);
   FCollectorEdit := NewEdit(154);
   FCollectorEdit.Text := FSettings.CollectorUrl;
-  AddSettingsLabel('Viewer-Token für den Sammler', 28, 210, 604);
+  AddSettingsLabel('Viewer-Token (selbst wählen; auf beiden Geräten gleich)', 28, 210, 604);
   FViewerTokenEdit := NewEdit(232, True);
   FViewerTokenEdit.Text := FSettings.ViewerToken;
+  FViewerTokenEdit.TextPrompt := 'Nur Windows: leer lassen';
 
   AddSettingsLabel('Monats-/Periodenlimit in USD (0 = API bzw. unbekannt)', 28, 288, 390);
   AddSettingsLabel('Abrechnungstag (1–28)', 440, 288, 192);
@@ -381,6 +383,10 @@ begin
   NewButton('Demo anzeigen', 28, 574, 292, ShowDemo);
   NewButton('Jetzt aktualisieren', 340, 574, 292, SaveSettings);
 {$ENDIF}
+  FDataStatusLabel := AddSettingsLabel('Codex: noch nicht abgefragt.', 28, 642, 604);
+  FDataStatusLabel.Height := 120;
+  FDataStatusLabel.WordWrap := True;
+  FDataStatusLabel.TextSettings.VertAlign := TTextAlign.Leading;
 end;
 
 procedure TMainForm.PaintDashboard(Sender: TObject; Canvas: TCanvas);
@@ -426,6 +432,7 @@ var
   Bitmap: TBitmap;
   FileName: string;
 begin
+  FSnapshot.MakeDemo;
   FileName := IncludeTrailingPathDelimiter(ExtractFilePath(ParamStr(0))) +
     'dashboard-preview.png';
   if ParamCount >= 2 then
@@ -464,7 +471,15 @@ begin
     FSettingsPanel.Width := 660;
     FSettingsPanel.Height := 650;
     FSettingsPanel.Visible := True;
+{$IF Defined(MSWINDOWS)}
+    FKeyEdit.ApplyStyleLookup;
+{$ENDIF}
     FDisplayCombo.ApplyStyleLookup;
+    FCollectorEdit.ApplyStyleLookup;
+    FViewerTokenEdit.ApplyStyleLookup;
+    FLimitEdit.ApplyStyleLookup;
+    FBillingDayEdit.ApplyStyleLookup;
+    FIdleEdit.ApplyStyleLookup;
     FCollectorEdit.Text := 'http://192.168.1.20:8787/snapshot';
     FViewerTokenEdit.Text := '';
     FLimitEdit.Text := '30,00';
@@ -737,7 +752,12 @@ begin
         begin
           FCodexClient.Enrich(NewSnapshot, CodexError);
           if CodexError <> '' then
-            NewSnapshot.StatusText := 'Aktuell · Codex teilweise nicht verfügbar';
+          begin
+            if NewSnapshot.CodexRateLimitsAvailable or NewSnapshot.CodexUsageAvailable then
+              NewSnapshot.StatusText := 'Aktuell · Codex teilweise nicht verfügbar'
+            else
+              NewSnapshot.StatusText := 'Aktuell · Codex nicht verfügbar';
+          end;
         end;
       end;
 {$ELSE}
@@ -776,6 +796,12 @@ begin
       FSnapshot.MakeDemo;
     FSnapshot.StatusText := 'Veraltet · ' + AError;
   end;
+  if FSnapshot.CodexError <> '' then
+    FDataStatusLabel.Text := 'Codex: ' + FSnapshot.CodexError
+  else if FSnapshot.CodexUsageAvailable then
+    FDataStatusLabel.Text := 'Codex-Nutzungsdaten verfügbar.'
+  else
+    FDataStatusLabel.Text := 'Codex: noch keine Nutzungsdaten erhalten.';
   FPaintBox.Repaint;
   UpdateExternalDisplay(True);
 end;

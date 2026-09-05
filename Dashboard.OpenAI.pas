@@ -16,14 +16,17 @@ type
     FHttpClient: THTTPClient;
     FCurrentRequest: IHTTPRequest;
     FCancelled: Integer;
-    function RequestJson(const APath, AQuery: string): string;
     function RequestPages(const APath, AQuery: string): TObject;
     procedure ReadCosts(const ABuckets: TObject; const ASnapshot: TUsageSnapshot);
-    procedure ReadCompletions(const ABuckets: TObject; const ASnapshot: TUsageSnapshot);
+    procedure ReadCompletions(const ABuckets: TObject; const ASnapshot: TUsageSnapshot;
+      const AUtcToday: TDateTime);
     procedure ReadService(const APath, AName, AValueField, AUnitText,
       ARequestField, AQuery: string; const ALatestOnly: Boolean;
       const ASnapshot: TUsageSnapshot);
     procedure TryReadSpendingLimit(const ASnapshot: TUsageSnapshot);
+  protected
+    function RequestJson(const APath, AQuery: string): string; virtual;
+    function CurrentUtcTime: TDateTime; virtual;
   public
     constructor Create(const AAdminKey: string; const ASpendingLimit: Double;
       const ABillingDay: Integer);
@@ -94,11 +97,12 @@ begin
     Result := Result + ' ' + Detail;
 end;
 
-function CurrentBillingStart(const ABillingDay: Integer): TDateTime;
+function CurrentBillingStart(const ABillingDay: Integer;
+  const ADateUtc: TDateTime): TDateTime;
 var
   Y, M, D: Word;
 begin
-  DecodeDate(Date, Y, M, D);
+  DecodeDate(ADateUtc, Y, M, D);
   if D >= ABillingDay then
     Result := EncodeDate(Y, M, ABillingDay)
   else
@@ -184,6 +188,11 @@ begin
   end;
 end;
 
+function TOpenAIUsageClient.CurrentUtcTime: TDateTime;
+begin
+  Result := TTimeZone.Local.ToUniversalTime(Now);
+end;
+
 function TOpenAIUsageClient.RequestPages(const APath, AQuery: string): TObject;
 var
   Combined, Data: TJSONArray;
@@ -246,8 +255,9 @@ begin
     begin
       Bucket := Buckets.Items[I] as TJSONObject;
       BucketStart := JsonInt64(Bucket, 'start_time');
-      Daily.Day := DateOf(UnixToDateTime(BucketStart, False));
+      Daily.Day := DateOf(UnixToDateTime(BucketStart, True));
       Daily.Amount := 0;
+      Daily.HasCostData := False;
       Results := Bucket.GetValue('results') as TJSONArray;
       if Results <> nil then
         for J := 0 to Results.Count - 1 do
@@ -255,6 +265,8 @@ begin
           Item := Results.Items[J] as TJSONObject;
           Amount := Item.GetValue('amount') as TJSONObject;
           Daily.Amount := Daily.Amount + JsonFloat(Amount, 'value');
+          if (Amount <> nil) and (Amount.GetValue('value') is TJSONNumber) then
+            Daily.HasCostData := True;
           if ASnapshot.OrganizationId = '' then
             ASnapshot.OrganizationId := JsonString(Item, 'organization_id', '');
           if ASnapshot.Currency = 'USD' then
@@ -269,7 +281,7 @@ begin
 end;
 
 procedure TOpenAIUsageClient.ReadCompletions(const ABuckets: TObject;
-  const ASnapshot: TUsageSnapshot);
+  const ASnapshot: TUsageSnapshot; const AUtcToday: TDateTime);
 var
   Buckets, Results: TJSONArray;
   Bucket, Item: TJSONObject;
@@ -285,11 +297,11 @@ begin
   Buckets := TJSONArray(ABuckets);
   Models := TObjectDictionary<string, TModelAccumulator>.Create([doOwnsValues]);
   try
-    UtcToday := DateOf(TTimeZone.Local.ToUniversalTime(Now));
+    UtcToday := DateOf(AUtcToday);
     for I := 0 to Buckets.Count - 1 do
     begin
       Bucket := Buckets.Items[I] as TJSONObject;
-      DayValue := DateOf(UnixToDateTime(JsonInt64(Bucket, 'start_time'), False));
+      DayValue := DateOf(UnixToDateTime(JsonInt64(Bucket, 'start_time'), True));
       Results := Bucket.GetValue('results') as TJSONArray;
       if Results = nil then
         Continue;
@@ -445,13 +457,14 @@ begin
   end;
   try
     ASnapshot.Clear;
-    UtcNow := TTimeZone.Local.ToUniversalTime(Now);
-    PeriodStart := CurrentBillingStart(FBillingDay);
+    UtcNow := CurrentUtcTime;
+    PeriodStart := CurrentBillingStart(FBillingDay, UtcNow);
     ASnapshot.PeriodStart := PeriodStart;
     ASnapshot.PeriodEnd := IncMonth(PeriodStart, 1);
-    StartDate := Min(DateOf(UtcNow) - 29, TTimeZone.Local.ToUniversalTime(PeriodStart));
-    StartUnix := DateTimeToUnix(StartDate, False);
-    CostQuery := 'start_time=' + IntToStr(StartUnix) + '&bucket_width=1d&limit=31';
+    StartDate := Min(DateOf(UtcNow) - 29, PeriodStart);
+    StartUnix := DateTimeToUnix(StartDate, True);
+    CostQuery := 'start_time=' + IntToStr(StartUnix) + '&bucket_width=1d&limit=31' +
+      '&end_time=' + IntToStr(DateTimeToUnix(UtcNow, True));
     Costs := RequestPages('/organization/costs', CostQuery);
     try
       ReadCosts(Costs, ASnapshot);
@@ -459,17 +472,19 @@ begin
       Costs.Free;
     end;
 
-    StartUnix := DateTimeToUnix(DateOf(UtcNow) - 6, False);
+    StartUnix := DateTimeToUnix(DateOf(UtcNow) - 6, True);
     UsageQuery := 'start_time=' + IntToStr(StartUnix) +
-      '&bucket_width=1d&limit=7&group_by=model';
+      '&bucket_width=1d&limit=7&group_by=model' +
+      '&end_time=' + IntToStr(DateTimeToUnix(UtcNow, True));
     Completions := RequestPages('/organization/usage/completions', UsageQuery);
     try
-      ReadCompletions(Completions, ASnapshot);
+      ReadCompletions(Completions, ASnapshot, UtcNow);
     finally
       Completions.Free;
     end;
 
-    UsageQuery := 'start_time=' + IntToStr(StartUnix) + '&bucket_width=1d&limit=7';
+    UsageQuery := 'start_time=' + IntToStr(StartUnix) + '&bucket_width=1d&limit=7' +
+      '&end_time=' + IntToStr(DateTimeToUnix(UtcNow, True));
     ReadService('/organization/usage/images', 'Bilder', 'images', '',
       'num_model_requests', UsageQuery, False, ASnapshot);
     ReadService('/organization/usage/embeddings', 'Embeddings', 'input_tokens', 'Tokens',
@@ -489,10 +504,10 @@ begin
     ReadService('/organization/usage/moderations', 'Moderation', 'input_tokens', 'Tokens',
       'num_model_requests', UsageQuery, False, ASnapshot);
     TryReadSpendingLimit(ASnapshot);
-    ASnapshot.LastUpdated := Now;
+    ASnapshot.LastUpdated := TTimeZone.Local.ToLocalTime(UtcNow);
     ASnapshot.StatusText := 'Aktuell';
     ASnapshot.SourceText := 'OpenAI API Platform';
-    ASnapshot.Recalculate;
+    ASnapshot.Recalculate(UtcNow);
     Result := True;
   except
     on E: Exception do

@@ -11,6 +11,7 @@ type
   TDailyCost = record
     Day: TDateTime;
     Amount: Double;
+    HasCostData: Boolean;
   end;
 
   TModelUsage = record
@@ -50,6 +51,7 @@ type
     Currency: string;
     Cost30Days: Double;
     CostToday: Double;
+    CostTodayAvailable: Boolean;
     Requests7Days: Int64;
     RequestsToday: Int64;
     Tokens7Days: Int64;
@@ -71,10 +73,15 @@ type
     CodexSevenDayTokens: Int64;
     CodexMonthTokens: Int64;
     CodexResetCredits: Integer;
+    CodexUsageAvailable: Boolean;
+    CodexLifetimeAvailable: Boolean;
+    CodexDailyUsageAvailable: Boolean;
+    CodexRateLimitsAvailable: Boolean;
+    CodexError: string;
     constructor Create;
     procedure Clear;
     procedure Assign(const ASource: TUsageSnapshot);
-    procedure Recalculate;
+    procedure Recalculate(const AAsOfUtc: TDateTime = 0);
     procedure MakeDemo;
     function ToJson: string;
     procedure FromJson(const AJson: string);
@@ -167,6 +174,27 @@ begin
     TryISO8601ToDate(S, Result, False);
 end;
 
+procedure AddCalendarDay(const AObject: TJSONObject; const AName: string;
+  const AValue: TDateTime);
+begin
+  AObject.AddPair(AName, FormatDateTime('yyyy-mm-dd', AValue));
+end;
+
+function ReadCalendarDay(const AObject: TJSONObject; const AName: string): TDateTime;
+var
+  S: string;
+  Y, M, D: Integer;
+begin
+  Result := 0;
+  S := JsonString(AObject, AName, '');
+  { Calendar labels are not instants. Also accept the date prefix in older
+    snapshots, without moving its day into the viewer's time zone. }
+  if (Length(S) >= 10) and (S[5] = '-') and (S[8] = '-') and
+     TryStrToInt(Copy(S, 1, 4), Y) and TryStrToInt(Copy(S, 6, 2), M) and
+     TryStrToInt(Copy(S, 9, 2), D) then
+    TryEncodeDate(Y, M, D, Result);
+end;
+
 { TUsageSnapshot }
 
 constructor TUsageSnapshot.Create;
@@ -182,6 +210,7 @@ begin
   Currency := 'USD';
   Cost30Days := 0;
   CostToday := 0;
+  CostTodayAvailable := False;
   Requests7Days := 0;
   RequestsToday := 0;
   Tokens7Days := 0;
@@ -203,6 +232,11 @@ begin
   CodexSevenDayTokens := 0;
   CodexMonthTokens := 0;
   CodexResetCredits := 0;
+  CodexUsageAvailable := False;
+  CodexLifetimeAvailable := False;
+  CodexDailyUsageAvailable := False;
+  CodexRateLimitsAvailable := False;
+  CodexError := '';
 end;
 
 procedure TUsageSnapshot.Assign(const ASource: TUsageSnapshot);
@@ -214,6 +248,7 @@ begin
   Currency := ASource.Currency;
   Cost30Days := ASource.Cost30Days;
   CostToday := ASource.CostToday;
+  CostTodayAvailable := ASource.CostTodayAvailable;
   Requests7Days := ASource.Requests7Days;
   RequestsToday := ASource.RequestsToday;
   Tokens7Days := ASource.Tokens7Days;
@@ -235,26 +270,41 @@ begin
   CodexSevenDayTokens := ASource.CodexSevenDayTokens;
   CodexMonthTokens := ASource.CodexMonthTokens;
   CodexResetCredits := ASource.CodexResetCredits;
+  CodexUsageAvailable := ASource.CodexUsageAvailable;
+  CodexLifetimeAvailable := ASource.CodexLifetimeAvailable;
+  CodexDailyUsageAvailable := ASource.CodexDailyUsageAvailable;
+  CodexRateLimitsAvailable := ASource.CodexRateLimitsAvailable;
+  CodexError := ASource.CodexError;
 end;
 
-procedure TUsageSnapshot.Recalculate;
+procedure TUsageSnapshot.Recalculate(const AAsOfUtc: TDateTime);
 var
   I, N, J: Integer;
   TodayValue, DayValue, Running, SumX, SumY, SumXY, SumXX, Slope,
     DailyAmount, XValue: Double;
   RegressionDay, TargetDay, ForecastPeriodStart, ForecastPeriodEnd: TDateTime;
 begin
-  TodayValue := Date;
+  if AAsOfUtc > 0 then
+    TodayValue := DateOf(AAsOfUtc)
+  else if LastUpdated > 0 then
+    TodayValue := DateOf(TTimeZone.Local.ToUniversalTime(LastUpdated))
+  else
+    TodayValue := DateOf(TTimeZone.Local.ToUniversalTime(Now));
   Cost30Days := 0;
   CostToday := 0;
+  CostTodayAvailable := False;
   PeriodCost := 0;
   for I := 0 to High(DailyCosts) do
   begin
     DayValue := Trunc(DailyCosts[I].Day);
-    if DayValue >= TodayValue - 29 then
+    if (DayValue >= TodayValue - 29) and (DayValue <= TodayValue) then
       Cost30Days := Cost30Days + DailyCosts[I].Amount;
     if SameDate(DayValue, TodayValue) then
+    begin
       CostToday := CostToday + DailyCosts[I].Amount;
+      CostTodayAvailable := CostTodayAvailable or DailyCosts[I].HasCostData or
+        (DailyCosts[I].Amount <> 0);
+    end;
     if (DayValue >= Trunc(PeriodStart)) and (DayValue < Trunc(PeriodEnd)) then
       PeriodCost := PeriodCost + DailyCosts[I].Amount;
   end;
@@ -321,17 +371,20 @@ const
      'gpt-5.3-codex-spark', 'gpt-4.1-mini');
 var
   I: Integer;
+  UtcToday: TDateTime;
 begin
   Clear;
   LastUpdated := Now;
+  UtcToday := DateOf(TTimeZone.Local.ToUniversalTime(LastUpdated));
   OrganizationId := 'org-demo';
   SpendingLimit := 30;
-  PeriodStart := StartOfTheMonth(Date);
+  PeriodStart := StartOfTheMonth(UtcToday);
   PeriodEnd := IncMonth(PeriodStart, 1);
   SetLength(DailyCosts, 30);
   for I := 0 to High(DailyCosts) do
   begin
-    DailyCosts[I].Day := IncDay(Date, I - High(DailyCosts));
+    DailyCosts[I].Day := IncDay(UtcToday, I - High(DailyCosts));
+    DailyCosts[I].HasCostData := True;
     if DayOfTheWeek(DailyCosts[I].Day) >= 6 then
       DailyCosts[I].Amount := 0.05 + 0.03 * (I mod 3)
     else
@@ -386,6 +439,10 @@ begin
   CodexTodayTokens := 141600000;
   CodexSevenDayTokens := 4100000000;
   CodexMonthTokens := 1300000000;
+  CodexUsageAvailable := True;
+  CodexLifetimeAvailable := True;
+  CodexDailyUsageAvailable := True;
+  CodexRateLimitsAvailable := True;
   StatusText := 'Demo-Daten';
   SourceText := 'Integrierte Vorschau';
   Recalculate;
@@ -404,13 +461,14 @@ begin
     Root.AddPair('currency', Currency);
     Root.AddPair('cost30Days', TJSONNumber.Create(Cost30Days));
     Root.AddPair('costToday', TJSONNumber.Create(CostToday));
+    Root.AddPair('costTodayAvailable', TJSONBool.Create(CostTodayAvailable));
     Root.AddPair('requests7Days', TJSONNumber.Create(Requests7Days));
     Root.AddPair('requestsToday', TJSONNumber.Create(RequestsToday));
     Root.AddPair('tokens7Days', TJSONNumber.Create(Tokens7Days));
     Root.AddPair('tokensToday', TJSONNumber.Create(TokensToday));
     Root.AddPair('spendingLimit', TJSONNumber.Create(SpendingLimit));
-    AddDatePair(Root, 'periodStart', PeriodStart);
-    AddDatePair(Root, 'periodEnd', PeriodEnd);
+    AddCalendarDay(Root, 'periodStart', PeriodStart);
+    AddCalendarDay(Root, 'periodEnd', PeriodEnd);
     Root.AddPair('periodCost', TJSONNumber.Create(PeriodCost));
     Root.AddPair('forecastDailyRate', TJSONNumber.Create(ForecastDailyRate));
     Root.AddPair('statusText', StatusText);
@@ -420,14 +478,20 @@ begin
     Root.AddPair('codexSevenDayTokens', TJSONNumber.Create(CodexSevenDayTokens));
     Root.AddPair('codexMonthTokens', TJSONNumber.Create(CodexMonthTokens));
     Root.AddPair('codexResetCredits', TJSONNumber.Create(CodexResetCredits));
+    Root.AddPair('codexUsageAvailable', TJSONBool.Create(CodexUsageAvailable));
+    Root.AddPair('codexLifetimeAvailable', TJSONBool.Create(CodexLifetimeAvailable));
+    Root.AddPair('codexDailyUsageAvailable', TJSONBool.Create(CodexDailyUsageAvailable));
+    Root.AddPair('codexRateLimitsAvailable', TJSONBool.Create(CodexRateLimitsAvailable));
+    Root.AddPair('codexError', CodexError);
 
     A := TJSONArray.Create;
     Root.AddPair('dailyCosts', A);
     for I := 0 to High(DailyCosts) do
     begin
       Item := TJSONObject.Create;
-      AddDatePair(Item, 'day', DailyCosts[I].Day);
+      AddCalendarDay(Item, 'day', DailyCosts[I].Day);
       Item.AddPair('amount', TJSONNumber.Create(DailyCosts[I].Amount));
+      Item.AddPair('hasCostData', TJSONBool.Create(DailyCosts[I].HasCostData));
       A.AddElement(Item);
     end;
     A := TJSONArray.Create;
@@ -471,7 +535,7 @@ begin
     for I := 0 to High(Forecast) do
     begin
       Item := TJSONObject.Create;
-      AddDatePair(Item, 'day', Forecast[I].Day);
+      AddCalendarDay(Item, 'day', Forecast[I].Day);
       Item.AddPair('cumulative', TJSONNumber.Create(Forecast[I].Cumulative));
       Item.AddPair('startsNewPeriod', TJSONBool.Create(Forecast[I].StartsNewPeriod));
       A.AddElement(Item);
@@ -500,13 +564,14 @@ begin
     Currency := JsonString(Root, 'currency', 'USD');
     Cost30Days := JsonFloat(Root, 'cost30Days');
     CostToday := JsonFloat(Root, 'costToday');
+    CostTodayAvailable := JsonBool(Root, 'costTodayAvailable', CostToday <> 0);
     Requests7Days := JsonInt64(Root, 'requests7Days');
     RequestsToday := JsonInt64(Root, 'requestsToday');
     Tokens7Days := JsonInt64(Root, 'tokens7Days');
     TokensToday := JsonInt64(Root, 'tokensToday');
     SpendingLimit := JsonFloat(Root, 'spendingLimit');
-    PeriodStart := ReadDate(Root, 'periodStart');
-    PeriodEnd := ReadDate(Root, 'periodEnd');
+    PeriodStart := ReadCalendarDay(Root, 'periodStart');
+    PeriodEnd := ReadCalendarDay(Root, 'periodEnd');
     PeriodCost := JsonFloat(Root, 'periodCost');
     ForecastDailyRate := JsonFloat(Root, 'forecastDailyRate');
     StatusText := JsonString(Root, 'statusText', '');
@@ -516,6 +581,11 @@ begin
     CodexSevenDayTokens := JsonInt64(Root, 'codexSevenDayTokens');
     CodexMonthTokens := JsonInt64(Root, 'codexMonthTokens');
     CodexResetCredits := JsonInt64(Root, 'codexResetCredits');
+    CodexUsageAvailable := JsonBool(Root, 'codexUsageAvailable', CodexLifetimeTokens > 0);
+    CodexLifetimeAvailable := JsonBool(Root, 'codexLifetimeAvailable', CodexUsageAvailable);
+    CodexDailyUsageAvailable := JsonBool(Root, 'codexDailyUsageAvailable', CodexUsageAvailable);
+    CodexRateLimitsAvailable := JsonBool(Root, 'codexRateLimitsAvailable');
+    CodexError := JsonString(Root, 'codexError', '');
 
     A := Root.GetValue('dailyCosts') as TJSONArray;
     if A <> nil then
@@ -524,8 +594,9 @@ begin
       for I := 0 to A.Count - 1 do
       begin
         Item := A.Items[I] as TJSONObject;
-        DailyCosts[I].Day := ReadDate(Item, 'day');
+        DailyCosts[I].Day := ReadCalendarDay(Item, 'day');
         DailyCosts[I].Amount := JsonFloat(Item, 'amount');
+        DailyCosts[I].HasCostData := JsonBool(Item, 'hasCostData', DailyCosts[I].Amount <> 0);
       end;
     end;
     A := Root.GetValue('models') as TJSONArray;
@@ -577,7 +648,7 @@ begin
       for I := 0 to A.Count - 1 do
       begin
         Item := A.Items[I] as TJSONObject;
-        Forecast[I].Day := ReadDate(Item, 'day');
+        Forecast[I].Day := ReadCalendarDay(Item, 'day');
         Forecast[I].Cumulative := JsonFloat(Item, 'cumulative');
         Forecast[I].StartsNewPeriod := JsonBool(Item, 'startsNewPeriod');
       end;

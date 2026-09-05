@@ -15,12 +15,15 @@ begin
     raise Exception.Create(AMessage);
 end;
 
+procedure RunTests;
 var
   Source, CopySnapshot, Remote, FullDays, SparseDays: TUsageSnapshot;
   Json, ErrorText: string;
   RateBefore: Double;
   Publisher: TSnapshotPublisher;
+  UtcToday: TDateTime;
 begin
+  UtcToday := DateOf(TTimeZone.Local.ToUniversalTime(Now));
   Source := TUsageSnapshot.Create;
   CopySnapshot := TUsageSnapshot.Create;
   Remote := TUsageSnapshot.Create;
@@ -39,18 +42,18 @@ begin
 
     FullDays.Clear;
     SparseDays.Clear;
-    FullDays.PeriodStart := IncDay(Date, -6);
+    FullDays.PeriodStart := IncDay(UtcToday, -6);
     FullDays.PeriodEnd := IncMonth(FullDays.PeriodStart, 1);
     SparseDays.PeriodStart := FullDays.PeriodStart;
     SparseDays.PeriodEnd := FullDays.PeriodEnd;
     SetLength(FullDays.DailyCosts, 6);
-    FullDays.DailyCosts[0].Day := IncDay(Date, -6);
-    FullDays.DailyCosts[1].Day := IncDay(Date, -5);
+    FullDays.DailyCosts[0].Day := IncDay(UtcToday, -6);
+    FullDays.DailyCosts[1].Day := IncDay(UtcToday, -5);
     FullDays.DailyCosts[1].Amount := 1;
-    FullDays.DailyCosts[2].Day := IncDay(Date, -4);
-    FullDays.DailyCosts[3].Day := IncDay(Date, -3);
-    FullDays.DailyCosts[4].Day := IncDay(Date, -2);
-    FullDays.DailyCosts[5].Day := IncDay(Date, -1);
+    FullDays.DailyCosts[2].Day := IncDay(UtcToday, -4);
+    FullDays.DailyCosts[3].Day := IncDay(UtcToday, -3);
+    FullDays.DailyCosts[4].Day := IncDay(UtcToday, -2);
+    FullDays.DailyCosts[5].Day := IncDay(UtcToday, -1);
     FullDays.DailyCosts[5].Amount := 1;
     SetLength(SparseDays.DailyCosts, 2);
     SparseDays.DailyCosts[0] := FullDays.DailyCosts[1];
@@ -67,6 +70,15 @@ begin
     Check(CopySnapshot.CostToday > 9000, 'JSON-Tageswert wurde nicht übertragen.');
     Check(CopySnapshot.OrganizationId = Source.OrganizationId,
       'JSON-Organisations-ID stimmt nicht.');
+    Check(CopySnapshot.CodexLifetimeAvailable and CopySnapshot.CodexDailyUsageAvailable,
+      'Codex-Verfügbarkeit wurde nicht übertragen.');
+    Source.CodexLifetimeAvailable := False;
+    Source.CodexError := 'Tokenstatistik nicht verfügbar';
+    CopySnapshot.FromJson(Source.ToJson);
+    Check(not CopySnapshot.CodexLifetimeAvailable and CopySnapshot.CodexDailyUsageAvailable,
+      'Getrennte Codex-Verfügbarkeit wurde nicht erhalten.');
+    Check(CopySnapshot.CodexError = Source.CodexError,
+      'Codex-Diagnose wurde nicht übertragen.');
 
     Publisher := TSnapshotPublisher.Create(18787, 'self-test-token');
     Check(Publisher.Start(ErrorText), 'Testserver startet nicht: ' + ErrorText);
@@ -84,5 +96,17 @@ begin
     Remote.Free;
     CopySnapshot.Free;
     Source.Free;
+  end;
+end;
+
+begin
+  try
+    RunTests;
+  except
+    on E: Exception do
+    begin
+      Writeln('SELF_TEST_FAILED: ', E.Message);
+      ExitCode := 1;
+    end;
   end;
 end.
