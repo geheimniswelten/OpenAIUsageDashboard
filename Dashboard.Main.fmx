@@ -1,0 +1,9 @@
+﻿object MainForm: TMainForm
+  Left = 0
+  Top = 0
+  Caption = 'OpenAI Usage Dashboard'
+  ClientHeight = 900
+  ClientWidth = 1600
+  FormFactor.Width = 1600
+  FormFactor.Height = 900
+end

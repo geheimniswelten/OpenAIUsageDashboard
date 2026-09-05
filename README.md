@@ -1,0 +1,133 @@
+# OpenAI Usage Dashboard (Delphi FMX)
+
+Native FireMonkey-Anwendung für **Win64 und Android64**. Das Ziel wird im selben
+RAD-Studio-Projekt über den Plattform-Selektor umgeschaltet; PowerShell und ein
+Browser werden zur Laufzeit nicht benötigt.
+
+## Funktionsumfang
+
+- OpenAI-Organisationskosten der letzten 30 Tage sowie Kosten/Anfragen/Tokens heute
+  und in den letzten sieben Tagen
+- bis zu fünf Top-Modelle in einem kompakten 2×3-Kartenraster sowie weitere
+  API-Dienste (Bilder, Embeddings, Web-/Dateisuche, Audio, Code Interpreter,
+  Vector Stores und Moderation)
+- Ausgabenlimit mit Prozentbalken und Limitlinie im Kostendiagramm
+- 14 Tagesbalken; ausschließlich der Hintergrund von Wochenenden ist abgesetzt
+- kumulierter Ist-Verbrauch und kalenderbasierte Trendberechnung; der noch
+  unvollständige heutige Tag wird aus der Prognosesteigung ausgeschlossen
+- vier kompakte Prognosepunkte für +7, +14, +21 und +28 Tage
+- sichtbarer Neustart von Ist-/Trendlinie am konfigurierten Abrechnungstag
+- lokale Codex-App-Server-Daten unter Windows: Rate-Limits, Reset-Zeitpunkte,
+  Reset-Credits und Tokenstatistiken
+- Wachhalten Montag bis Freitag von 10:00 bis 18:00 Uhr Ortszeit
+- Vollbild- und Mehrmonitorbetrieb
+
+## Projekt öffnen und Target wechseln
+
+1. `OpenAIUsageDashboard.dproj` in RAD Studio öffnen.
+2. Im Projektmanager unter **Target Platforms** entweder `Win64` oder `Android64`
+   aktivieren.
+3. `Debug` oder `Release` wählen und normal bauen/deployen.
+
+Das Projekt wurde mit RAD Studio 37/Delphi 13 erstellt. Für Android müssen SDK,
+NDK, Gerät und Signierung in RAD Studio eingerichtet sein. Das Manifest fordert
+Internetzugriff an, verwendet die beiden Landscape-Ausrichtungen und erlaubt für
+den hausinternen HTTP-Sammler Klartextverkehr.
+
+## Windows einrichten
+
+Beim ersten Start öffnet sich die Einstellungskarte. Sie ist später über das
+Zahnrad oder `F2` erreichbar.
+
+1. Einen OpenAI **Organization Admin Key** eingeben.
+2. Falls das gewünschte Periodenlimit nicht über die API verfügbar ist, das Limit
+   in USD manuell eintragen.
+3. Abrechnungstag (`1` bis `28`) und Dashboard-Monitor setzen. `-1` wählt bevorzugt
+   den ersten nicht primären Monitor.
+4. Für einen Android-Viewer einen ausreichend langen, zufälligen Viewer-Token
+   setzen. Ohne Token lauscht der Snapshot-Server nur auf `127.0.0.1`; mit Token
+   auf allen lokalen Adressen, standardmäßig TCP-Port `8787`.
+
+Der Admin-Key wird nicht in der INI gespeichert. Die Speicherung erfolgt in der
+vereinbarten Kette:
+
+`API-Key → AES-256-GCM mit Programmschlüssel → CryptProtectData (aktueller Windows-Nutzer) → CredWrite`
+
+Credential-Target: `OpenAIUsageDashboard/AdminKey/v1`. Temporäre Klartext- und
+Schlüssel-Bytepuffer werden nach Gebrauch überschrieben. Der eingebettete
+Programmschlüssel ist eine zusätzliche interne Schicht; die eigentliche
+Nutzerbindung liefert DPAPI.
+
+Für Codex muss die lokale Codex-CLI installiert und angemeldet sein. Die App sucht
+`codex.exe` beziehungsweise `codex.cmd`, startet `codex app-server` unsichtbar und
+hält den Prozess für spätere Aktualisierungen offen. Ein Codex-Fehler verhindert
+nicht die Anzeige der OpenAI-API-Daten.
+
+## Android mit Windows-Sammler
+
+Android enthält absichtlich **keinen OpenAI-Admin-Key**. In der Android-App werden
+eingetragen:
+
+- Sammler: `http://<LAN-IP-des-Windows-PCs>:8787/snapshot`
+- derselbe Viewer-Token wie unter Windows
+
+Gegebenenfalls muss TCP 8787 in der Windows-Firewall für das private Netz
+freigegeben werden. Der Snapshot enthält ausschließlich aufbereitete Statistik,
+nicht den Admin-Key. HTTP ist für ein vertrauenswürdiges internes LAN gedacht; für
+andere Netze sollte davor ein HTTPS-Reverse-Proxy eingesetzt werden.
+
+Bei einem eigenständigen USB-C-/HDMI-Anzeigegerät verwendet Android eine
+`Presentation`: Das Dashboard erscheint auf dem externen Display, während das
+Tablet schwarz bleibt. Ein Tippen beziehungsweise Eingabe auf dem Tablet blendet
+die App-Steuerung ein; nach der eingestellten Inaktivitätszeit (Standard zehn
+Minuten) wird sie wieder schwarz. Bei reinem Display-Mirroring kann Android die
+beiden Bildschirme technisch nicht unterschiedlich darstellen.
+
+Die App kann auf Android nur ihre eigene Activity schwärzen beziehungsweise
+anzeigen; fremde Apps oder die Android-Systemoberfläche werden nicht global
+überlagert.
+
+## Mehrmonitor- und Wachhalteverhalten
+
+- Windows: Das Dashboard bleibt sichtbar; alle anderen Monitore erhalten schwarze,
+  rahmenlose Topmost-Fenster. Globale Maus-, Tastatur- oder Touch-Eingabe deckt sie
+  auf, nach zehn Minuten ohne Eingabe werden sie erneut schwarz. Monitoranzahl und
+  -geometrie werden laufend geprüft.
+- Windows: `SetThreadExecutionState(ES_CONTINUOUS | ES_DISPLAY_REQUIRED |
+  ES_SYSTEM_REQUIRED)` wird im Zeitfenster regelmäßig erneuert und außerhalb mit
+  `ES_CONTINUOUS` zurückgenommen.
+- Android: `FLAG_KEEP_SCREEN_ON` wird im selben Zeitfenster dynamisch auf Activity
+  und Presentation gesetzt beziehungsweise entfernt.
+
+## Einstellungen
+
+Unkritische Einstellungen liegen pro Nutzer in
+`Dokumente\OpenAIUsageDashboard.ini`. Dort können bei Bedarf auch diese Werte
+angepasst werden:
+
+```ini
+[Network]
+ListenPort=8787
+
+[Usage]
+RefreshSeconds=30
+UseDemoWhenUnavailable=1
+
+[Display]
+KeepAwakeStartHour=10
+KeepAwakeEndHour=18
+OtherDisplayIdleMinutes=10
+```
+
+## Verifikation
+
+- Win64-Anwendung kompiliert und eine 1920×1080-Vorschau wurde gerendert.
+- Alle gemeinsam genutzten Units einschließlich Android-Presentation-Code wurden
+  mit dem Android64-Compiler übersetzt.
+- `tests/Dashboard.Tests.dpr` prüft Prognose (inklusive Ausschluss des heutigen
+  Tages), JSON-Roundtrip und authentifizierten Snapshot-Transport.
+- `tests/Codex.Smoke.dpr` ist ein optionaler Live-Test gegen eine lokal angemeldete
+  Codex-CLI.
+
+Eine Android-APK wird anschließend von RAD Studio mit der lokal konfigurierten
+SDK-/NDK-Toolchain und Signierung erzeugt.

@@ -1,0 +1,11 @@
+bin/
+dcu/
+tests/bin/
+tests/dcu/
+*.apk
+*.aab
+*.dproj.local
+*.identcache
+*.stat
+*.tvsconfig
+OpenAIUsageDashboard.ini
