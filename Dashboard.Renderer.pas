@@ -458,8 +458,8 @@ begin
         ACanvas.Stroke.Color := CFaint;
         ACanvas.DrawLine(TPointF.Create(X - ForecastWidth * 0.08, Plot.Top),
           TPointF.Create(X - ForecastWidth * 0.08, Plot.Bottom - 25 * FScale), 0.8);
-        Text(ACanvas, TRectF.Create(X - 80 * FScale, Plot.Top + 3 * FScale,
-          X + 80 * FScale, Plot.Top + 20 * FScale), 'Abrechnung → 0', 8,
+        Text(ACanvas, TRectF.Create(X - 80 * FScale, Plot.Top + 22 * FScale,
+          X + 80 * FScale, Plot.Top + 42 * FScale), 'Abrechnung → 0', 8,
           CMuted, False, TTextAlign.Center);
         ACanvas.Stroke.Color := CLime;
         FirstForecast := True;
@@ -476,8 +476,8 @@ begin
       ACanvas.FillEllipse(TRectF.Create(X - 4 * FScale, Y - 4 * FScale,
         X + 4 * FScale, Y + 4 * FScale), 1);
       Text(ACanvas, TRectF.Create(X - ForecastWidth * 0.12,
-        Plot.Top + 21 * FScale, X + ForecastWidth * 0.12,
-        Plot.Top + 39 * FScale), FormatMoney(FSnapshot.Forecast[I].Cumulative,
+        Plot.Top + 3 * FScale, X + ForecastWidth * 0.12,
+        Plot.Top + 21 * FScale), FormatMoney(FSnapshot.Forecast[I].Cumulative,
         FSnapshot.Currency), 8, CLime, True, TTextAlign.Center);
       Text(ACanvas, TRectF.Create(X - ForecastWidth * 0.12,
         Plot.Bottom - 22 * FScale, X + ForecastWidth * 0.12, Plot.Bottom),
@@ -549,14 +549,14 @@ begin
       Box(ACanvas, Card, TAlphaColor($FF081B14), CBorder, 9);
 
     NameRect := TRectF.Create(Card.Left + 8 * FScale,
-      Card.Top + 5 * FScale, Card.Right - 8 * FScale,
-      Card.Top + CellH * 0.40);
+      Card.Top + 4 * FScale, Card.Right - 8 * FScale,
+      Card.Top + CellH * 0.36);
     RequestRect := TRectF.Create(Card.Left + 8 * FScale,
-      Card.Top + CellH * 0.40, Card.Right - 8 * FScale,
-      Card.Top + CellH * 0.69);
+      Card.Top + CellH * 0.36, Card.Right - 8 * FScale,
+      Card.Top + CellH * 0.68);
     TokenRect := TRectF.Create(Card.Left + 8 * FScale,
-      Card.Top + CellH * 0.69, Card.Right - 8 * FScale,
-      Card.Bottom - 4 * FScale);
+      Card.Top + CellH * 0.68, Card.Right - 8 * FScale,
+      Card.Bottom - 3 * FScale);
 
     if I = 0 then
     begin
@@ -573,17 +573,17 @@ begin
     if ModelIndex < Count then
     begin
       if Length(FSnapshot.Models[ModelIndex].Model) > 24 then
-        ModelFontSize := 8
+        ModelFontSize := 12
       else
-        ModelFontSize := 9;
+        ModelFontSize := 13.5;
       Text(ACanvas, NameRect, FitModelName(FSnapshot.Models[ModelIndex].Model,
         NameRect.Width, ModelFontSize), ModelFontSize, CText, True,
         TTextAlign.Center);
       Text(ACanvas, RequestRect,
-        CompactNumber(FSnapshot.Models[ModelIndex].Requests), 12, CBlue,
+        CompactNumber(FSnapshot.Models[ModelIndex].Requests), 25.2, CBlue,
         True, TTextAlign.Center);
       Text(ACanvas, TokenRect,
-        CompactNumber(FSnapshot.Models[ModelIndex].Tokens), 12, CLime,
+        CompactNumber(FSnapshot.Models[ModelIndex].Tokens), 25.2, CLime,
         True, TTextAlign.Center);
     end
     else
@@ -595,8 +595,8 @@ procedure TDashboardRenderer.DrawServices(const ACanvas: TCanvas;
   const ARect: TRectF);
 var
   I, Count, Col, RowIndex, Cols, Rows: Integer;
-  Gap, CellW, CellH, X, Y: Single;
-  R: TRectF;
+  Gap, CellW, CellH, X, Y, ValueFontSize, MeasuredWidth: Single;
+  R, NameRect, ValueRect, DetailRect: TRectF;
   ValueText, Detail: string;
 begin
   Box(ACanvas, ARect, CPanel, CBorder);
@@ -623,22 +623,29 @@ begin
     Y := ARect.Top + 41 * FScale + RowIndex * (CellH + Gap);
     R := TRectF.Create(X, Y, X + CellW, Y + CellH);
     Box(ACanvas, R, TAlphaColor($FF081B14), CBorder, 9);
-    Text(ACanvas, TRectF.Create(R.Left + 9 * FScale, R.Top + 4 * FScale,
-      R.Right - 6 * FScale, R.Top + 23 * FScale), FSnapshot.Services[I].Name,
-      8, CMuted);
+    NameRect := TRectF.Create(R.Left + 10 * FScale, R.Top + 8 * FScale,
+      R.Right - 10 * FScale, R.Top + 36 * FScale);
+    ValueRect := TRectF.Create(R.Left + 10 * FScale, R.Top + 34 * FScale,
+      R.Right - 10 * FScale, R.Bottom - 28 * FScale);
+    DetailRect := TRectF.Create(R.Left + 10 * FScale, R.Bottom - 28 * FScale,
+      R.Right - 10 * FScale, R.Bottom - 6 * FScale);
+    Text(ACanvas, NameRect, FSnapshot.Services[I].Name, 12, CMuted);
     if FSnapshot.Services[I].Available then
       ValueText := CompactValue(FSnapshot.Services[I].Value,
         FSnapshot.Services[I].UnitText)
     else
       ValueText := '–';
-    Text(ACanvas, TRectF.Create(R.Left + 9 * FScale, R.Top + 21 * FScale,
-      R.Right - 7 * FScale, R.Bottom - 17 * FScale), ValueText, 15, CText, True);
+    ValueFontSize := 31;
+    SetFont(ACanvas, ValueFontSize, True);
+    MeasuredWidth := ACanvas.TextWidth(ValueText);
+    if (MeasuredWidth > 0) and (MeasuredWidth > ValueRect.Width) then
+      ValueFontSize := Max(20, ValueFontSize * ValueRect.Width / MeasuredWidth);
+    Text(ACanvas, ValueRect, ValueText, ValueFontSize, CText, True);
     if FSnapshot.Services[I].Available then
       Detail := CompactNumber(FSnapshot.Services[I].Requests) + ' Anfragen'
     else
       Detail := 'nicht verfügbar';
-    Text(ACanvas, TRectF.Create(R.Left + 9 * FScale, R.Bottom - 19 * FScale,
-      R.Right - 7 * FScale, R.Bottom - 3 * FScale), Detail, 7, CMuted);
+    Text(ACanvas, DetailRect, Detail, 9, CMuted);
   end;
 end;
 

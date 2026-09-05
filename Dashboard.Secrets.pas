@@ -8,6 +8,8 @@ type
     class function SaveAdminKey(const AKey: string; out AError: string): Boolean; static;
     class function LoadAdminKey(out AKey, AError: string): Boolean; static;
     class function DeleteAdminKey(out AError: string): Boolean; static;
+    class function ProtectionSelfTest(out AError: string;
+      const AIncludeDpapi: Boolean = True): Boolean; static;
   end;
 
 implementation
@@ -15,7 +17,8 @@ implementation
 uses
   System.SysUtils
 {$IF Defined(MSWINDOWS)}
-  , Winapi.Windows,
+  , System.Win.ComObj,
+  Winapi.Windows,
   Winapi.WinRT,
   Winapi.WinCred,
   Winapi.CommonTypes,
@@ -39,6 +42,16 @@ const
     $43, $F1, $09, $92, $77, $BE, $24, $68,
     $15, $D4, $EA, $31, $9C, $02, $B8, $5F,
     $A1, $73, $46, $CB, $0D, $E7, $98, $2A);
+
+type
+  { The Delphi 13 WinRT projection declares CopyToByteArray's OUT array as
+    ordinary value parameters.  On Win64 this makes CryptoWinRT interpret the
+    byte count (12 for our nonce) as a writable pointer.  IBufferByteAccess is
+    the native, zero-copy ABI for reading an IBuffer safely. }
+  IBufferByteAccess = interface(IUnknown)
+    ['{905A0FEF-BC53-11DF-8C49-001E4FC686DA}']
+    function Buffer(out AValue: PByte): HRESULT; stdcall;
+  end;
 
 function CryptProtectData(pDataIn: PDATA_BLOB; szDataDescr: LPCWSTR;
   pOptionalEntropy: PDATA_BLOB; pvReserved: Pointer; pPromptStruct: Pointer;
@@ -66,12 +79,22 @@ begin
 end;
 
 function BufferToBytes(const ABuffer: IBuffer): TBytes;
+var
+  ByteAccess: IBufferByteAccess;
+  Data: PByte;
 begin
   if ABuffer = nil then
     Exit(nil);
   SetLength(Result, ABuffer.Length);
-  if Length(Result) > 0 then
-    TCryptographicBuffer.CopyToByteArray(ABuffer, Length(Result), @Result[0]);
+  if Length(Result) = 0 then
+    Exit;
+  if not Supports(ABuffer, IBufferByteAccess, ByteAccess) then
+    raise EInvalidOpException.Create('Der WinRT-Puffer erlaubt keinen Bytezugriff.');
+  Data := nil;
+  OleCheck(ByteAccess.Buffer(Data));
+  if Data = nil then
+    raise EInvalidPointer.Create('Der WinRT-Puffer enthält keinen Datenzeiger.');
+  Move(Data^, Result[0], Length(Result));
 end;
 
 function StaticKeyBytes: TBytes;
@@ -138,7 +161,7 @@ begin
     raise EConvertError.Create('Unbekanntes Schlüssel-Format');
   NonceLength := AEnvelope[1];
   TagLength := AEnvelope[2];
-  if (NonceLength < 8) or (TagLength < 12) or
+  if (NonceLength <> NonceSize) or (TagLength <> TagSize) or
      (3 + NonceLength + TagLength > Length(AEnvelope)) then
     raise EConvertError.Create('Beschädigtes Schlüssel-Format');
   SetLength(Nonce, NonceLength);
@@ -293,7 +316,11 @@ begin
     end;
     SetLength(ProtectedBytes, Credential.CredentialBlobSize);
     if Length(ProtectedBytes) > 0 then
+    begin
+      if Credential.CredentialBlob = nil then
+        raise EInvalidPointer.Create('Der Windows-Anmeldeinformationsspeicher lieferte keinen Datenzeiger.');
       Move(Credential.CredentialBlob^, ProtectedBytes[0], Length(ProtectedBytes));
+    end;
     Envelope := DpapiUnprotect(ProtectedBytes);
     try
       Plain := DecryptApplicationLayer(Envelope);
@@ -332,6 +359,71 @@ begin
   end;
 {$ELSE}
   Result := True;
+{$ENDIF}
+end;
+
+class function TSecretStore.ProtectionSelfTest(out AError: string;
+  const AIncludeDpapi: Boolean): Boolean;
+{$IF Defined(MSWINDOWS)}
+var
+  Plain, Envelope, ProtectedBytes, UnprotectedEnvelope, RoundTrip,
+    TamperedPlain: TBytes;
+  TamperRejected: Boolean;
+  Stage: string;
+{$ENDIF}
+begin
+  Result := False;
+  AError := '';
+{$IF Defined(MSWINDOWS)}
+  Plain := TEncoding.UTF8.GetBytes('OpenAIUsageDashboard protection self-test');
+  Stage := 'AES-GCM-Verschlüsselung';
+  try
+    try
+      Envelope := EncryptApplicationLayer(Plain);
+      if AIncludeDpapi then
+      begin
+        Stage := 'DPAPI-Schutz';
+        ProtectedBytes := DpapiProtect(Envelope);
+        Stage := 'DPAPI-Entschlüsselung';
+        UnprotectedEnvelope := DpapiUnprotect(ProtectedBytes);
+      end
+      else
+        UnprotectedEnvelope := Copy(Envelope);
+      Stage := 'AES-GCM-Entschlüsselung';
+      RoundTrip := DecryptApplicationLayer(UnprotectedEnvelope);
+      if (Length(RoundTrip) <> Length(Plain)) or
+         ((Length(Plain) > 0) and not CompareMem(@RoundTrip[0], @Plain[0],
+           Length(Plain))) then
+        raise EInvalidOpException.Create('Der Schlüsselschutz-Rundlauf ist fehlgeschlagen.');
+
+      { AES-GCM must reject even a single changed authentication-tag bit. }
+      UnprotectedEnvelope[3 + NonceSize] :=
+        UnprotectedEnvelope[3 + NonceSize] xor $01;
+      TamperRejected := False;
+      Stage := 'AES-GCM-Manipulationsprüfung';
+      try
+        TamperedPlain := DecryptApplicationLayer(UnprotectedEnvelope);
+      except
+        on Exception do
+          TamperRejected := True;
+      end;
+      if not TamperRejected then
+        raise EInvalidOpException.Create('AES-GCM akzeptiert einen veränderten Authentifizierungstag.');
+      Result := True;
+    except
+      on E: Exception do
+        AError := Stage + ': ' + E.Message;
+    end;
+  finally
+    SecureWipe(TamperedPlain);
+    SecureWipe(RoundTrip);
+    SecureWipe(UnprotectedEnvelope);
+    SecureWipe(ProtectedBytes);
+    SecureWipe(Envelope);
+    SecureWipe(Plain);
+  end;
+{$ELSE}
+  AError := 'Der Schlüsselschutz wird nur unter Windows ausgeführt.';
 {$ENDIF}
 end;
 

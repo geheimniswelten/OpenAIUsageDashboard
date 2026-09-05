@@ -11,11 +11,15 @@ Browser werden zur Laufzeit nicht benötigt.
 - bis zu fünf Top-Modelle in einem kompakten 2×3-Kartenraster sowie weitere
   API-Dienste (Bilder, Embeddings, Web-/Dateisuche, Audio, Code Interpreter,
   Vector Stores und Moderation)
+- vergrößerte Modellnamen und deutlich vergrößerte Anfrage-/Tokenwerte;
+  die Zusatzdienste verwenden dieselbe Caption-/Wert-/Detail-Typografie wie die
+  Codex-Kennzahlen
 - Ausgabenlimit mit Prozentbalken und Limitlinie im Kostendiagramm
 - 14 Tagesbalken; ausschließlich der Hintergrund von Wochenenden ist abgesetzt
 - kumulierter Ist-Verbrauch und kalenderbasierte Trendberechnung; der noch
   unvollständige heutige Tag wird aus der Prognosesteigung ausgeschlossen
-- vier kompakte Prognosepunkte für +7, +14, +21 und +28 Tage
+- vier kompakte Prognosepunkte für +7, +14, +21 und +28 Tage; der prognostizierte
+  Betrag steht oben, ein Abrechnungswechsel als zweite Zeile darunter
 - sichtbarer Neustart von Ist-/Trendlinie am konfigurierten Abrechnungstag
 - lokale Codex-App-Server-Daten unter Windows: Rate-Limits, Reset-Zeitpunkte,
   Reset-Credits und Tokenstatistiken
@@ -65,6 +69,12 @@ Credential-Target: `OpenAIUsageDashboard/AdminKey/v1`. Temporäre Klartext- und
 Schlüssel-Bytepuffer werden nach Gebrauch überschrieben. Der eingebettete
 Programmschlüssel ist eine zusätzliche interne Schicht; die eigentliche
 Nutzerbindung liefert DPAPI.
+
+Delphi 13 projiziert das WinRT-OUT-Array von `CopyToByteArray` unter Win64 nicht
+ABI-sicher. Die Anwendung liest die AES-GCM-Puffer deshalb über das native
+`IBufferByteAccess`-Interface aus; der geliehene Zeiger wird sofort kopiert und
+nicht freigegeben. Damit wird insbesondere der frühere Schreibzugriff auf Adresse
+`0x000C` beim 12-Byte-Nonce vermieden.
 
 Für Codex muss die lokale Codex-CLI installiert und angemeldet sein. Die App sucht
 `codex.exe` beziehungsweise `codex.cmd`, startet `codex app-server` unsichtbar und
@@ -138,9 +148,13 @@ OtherDisplayIdleMinutes=10
 - Win64-Anwendung kompiliert; Dashboard- und Einstellungsansicht wurden als
   Vorschauen gerendert und visuell geprüft.
 - Alle gemeinsam genutzten Units einschließlich Android-Presentation-Code wurden
-  mit dem Android64-Compiler übersetzt.
+  mit dem Android64-Compiler übersetzt und zur ARM64-Shared-Library gelinkt.
 - `tests/Dashboard.Tests.dpr` prüft Prognose (inklusive Ausschluss des heutigen
   Tages), JSON-Roundtrip und authentifizierten Snapshot-Transport.
+- `tests/Secrets.Tests.dpr` prüft ohne Credential-Schreibzugriff den
+  AES-256-GCM-Rundlauf, den sicheren WinRT-Pufferzugriff sowie die Ablehnung eines
+  manipulierten Authentifizierungstags. Der optionale DPAPI-Teil benötigt einen
+  normalen interaktiven Windows-Benutzerkontext.
 - `tests/Codex.Smoke.dpr` ist ein optionaler Live-Test gegen eine lokal angemeldete
   Codex-CLI.
 
