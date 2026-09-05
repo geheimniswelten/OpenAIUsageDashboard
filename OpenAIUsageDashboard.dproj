@@ -157,6 +157,7 @@
         <DCCReference Include="Dashboard.Secrets.pas"/>
         <DCCReference Include="Dashboard.Settings.pas"/>
         <DCCReference Include="Dashboard.Transport.pas"/>
+        <DCCReference Include="Dashboard.Tray.pas"/>
         <None Include="AndroidManifest.template.xml"/>
         <None Include="OpenAIUsageDashboard.manifest"/>
         <None Include="OpenAIUsageDashboard.rc"/>

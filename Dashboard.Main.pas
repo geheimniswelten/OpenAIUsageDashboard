@@ -3,6 +3,9 @@
 interface
 
 uses
+{$IF Defined(MSWINDOWS)}
+  Winapi.Windows,
+{$ENDIF}
   System.SysUtils,
   System.Classes,
   System.Types,
@@ -22,17 +25,40 @@ uses
   Dashboard.Platform,
   Dashboard.Transport,
   Dashboard.Codex,
-  Dashboard.OpenAI;
+  Dashboard.OpenAI
+{$IF Defined(MSWINDOWS)}
+  , Dashboard.Tray
+{$ENDIF}
+  ;
 
 type
+  TSettingsFieldLayout = record
+    Container: TLayout;
+    Caption: TLabel;
+    Editor: TControl;
+  end;
+
+  TSettingsRowLayout = record
+    Controls: TArray<TControl>;
+    MinimumHeights: TArray<Single>;
+    MinimumWidth: Single;
+  end;
+
   TMainForm = class(TForm)
   private
     FPaintBox: TPaintBox;
     FTimer: TTimer;
     FSettingsPanel: TRectangle;
     FSettingsScroll: TScrollBox;
+    FSettingsFields: TArray<TSettingsFieldLayout>;
+    FSettingsRows: TArray<TSettingsRowLayout>;
+    FSettingsSafeInsets: TRectF;
+    FSettingsKeyboardBounds: TRect;
+    FSettingsKeyboardVisible: Boolean;
+    FSettingsLayoutBusy: Boolean;
 {$IF Defined(MSWINDOWS)}
     FKeyEdit: TEdit;
+    FStartInTrayCheck: TCheckBox;
 {$ENDIF}
     FCollectorEdit: TEdit;
     FViewerTokenEdit: TEdit;
@@ -51,6 +77,9 @@ type
     FCodexClient: TCodexClient;
 {$IF Defined(MSWINDOWS)}
     FActiveOpenAIClient: TOpenAIUsageClient;
+    FTray: TDashboardTray;
+    FCollectorMode: Boolean;
+    FAllowCollectorSettings: Boolean;
 {$ENDIF}
     FWorker: TThread;
     FFetching: Boolean;
@@ -59,8 +88,20 @@ type
     FLastExternalRender: TDateTime;
     FCompanionRevealUntil: TDateTime;
     FWasExternal: Boolean;
+    FStarted: Boolean;
     procedure BuildUi;
     procedure BuildSettingsPanel;
+    function AddSettingsField(const ACaption: string;
+      const AEditor: TControl): TLayout;
+    procedure AddSettingsRow(const AControls: array of TControl;
+      const AMinimumWidth: Single = 0);
+    procedure LayoutSettingsControls;
+    procedure LayoutSettingsPanel(const AViewport: TRectF);
+    procedure SettingsSafeAreaChanged(Sender: TObject; const AInsets: TRectF);
+    procedure SettingsKeyboardChanged(Sender: TObject; KeyboardVisible: Boolean;
+      const Bounds: TRect);
+    procedure SettingsEditorEntered(Sender: TObject);
+    procedure RevealSettingsEditor;
     function AddSettingsLabel(const AText: string; const AX, AY,
       AWidth: Single): TLabel;
     procedure PopulateDisplayChoices;
@@ -82,6 +123,11 @@ type
     procedure ExitApplication(Sender: TObject);
 {$IF Defined(MSWINDOWS)}
     procedure DeleteKey(Sender: TObject);
+    procedure TrayAction(Sender: TObject; AAction: TTrayAction);
+    procedure EnterCollectorMode(Sender: TObject);
+    procedure ShowDashboard;
+    procedure ShowCollectorSettings;
+    procedure FormClosing(Sender: TObject; var Action: TCloseAction);
 {$ENDIF}
     procedure BeginRefresh;
     procedure ApplyRefresh(const ANewSnapshot: TUsageSnapshot;
@@ -94,6 +140,7 @@ type
     procedure RenderPreviewAndExit;
     procedure RenderSettingsPreviewAndExit;
   public
+    function CanShow: Boolean; override;
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
   end;
@@ -109,7 +156,13 @@ uses
   System.DateUtils,
   System.Math,
   System.IOUtils,
-  Dashboard.Secrets;
+  FMX.TextLayout,
+  FMX.BehaviorManager,
+  Dashboard.Secrets
+{$IF Defined(MSWINDOWS)}
+  , FMX.Platform.Win
+{$ENDIF}
+  ;
 
 const
   BackgroundColor = TAlphaColor($FF06140F);
@@ -122,6 +175,7 @@ constructor TMainForm.Create(AOwner: TComponent);
 {$IF Defined(MSWINDOWS)}
 var
   Key, ErrorText: string;
+  IsPreview, WantCollector: Boolean;
 {$ENDIF}
 begin
   inherited Create(AOwner);
@@ -144,10 +198,26 @@ begin
   FLastExternalRender := 0;
   OnShow := FormShown;
   OnResize := FormResized;
+  OnSafeAreaChanged := SettingsSafeAreaChanged;
+  OnVirtualKeyboardShown := SettingsKeyboardChanged;
+  OnVirtualKeyboardHidden := SettingsKeyboardChanged;
+  FormResized(Self);
   OnKeyDown := FormKeyDown;
 {$IF Defined(MSWINDOWS)}
   if not TSecretStore.LoadAdminKey(Key, ErrorText) then
     FSettingsPanel.Visible := True;
+  IsPreview := (Pos('--render-', LowerCase(ParamStr(1))) = 1);
+  if not IsPreview then
+  begin
+    FTray := TDashboardTray.Create(TrayAction);
+    FTray.Show(ErrorText);
+    WantCollector := FSettings.StartInTray or
+      SameText(ParamStr(1), '--collector') or FindCmdLineSwitch('collector', True);
+    if WantCollector and (Key <> '') then
+      EnterCollectorMode(nil);
+  end;
+  Key := '';
+  OnClose := FormClosing;
 {$ENDIF}
 {$IF Defined(ANDROID)}
   if Pos('127.0.0.1', FSettings.CollectorUrl) > 0 then
@@ -158,6 +228,9 @@ end;
 destructor TMainForm.Destroy;
 begin
   FClosing := True;
+{$IF Defined(MSWINDOWS)}
+  FreeAndNil(FTray);
+{$ENDIF}
   FTimer.Enabled := False;
   if FCodexClient <> nil then
     FCodexClient.Stop;
@@ -184,6 +257,14 @@ begin
   FSettings.Free;
   FSnapshot.Free;
   inherited;
+end;
+
+function TMainForm.CanShow: Boolean;
+begin
+  Result := inherited CanShow;
+{$IF Defined(MSWINDOWS)}
+  Result := Result and (not FCollectorMode or FAllowCollectorSettings);
+{$ENDIF}
 end;
 
 procedure TMainForm.BuildUi;
@@ -216,6 +297,43 @@ begin
   Result.Position.Y := AY;
   Result.Width := AWidth;
   Result.Height := 22;
+  Result.WordWrap := True;
+  Result.TextSettings.VertAlign := TTextAlign.Leading;
+end;
+
+function TMainForm.AddSettingsField(const ACaption: string;
+  const AEditor: TControl): TLayout;
+var
+  Index: Integer;
+begin
+  Result := TLayout.Create(FSettingsScroll);
+  Result.Parent := FSettingsScroll;
+  Result.Height := 80;
+  Index := Length(FSettingsFields);
+  SetLength(FSettingsFields, Index + 1);
+  FSettingsFields[Index].Container := Result;
+  FSettingsFields[Index].Caption := AddSettingsLabel(ACaption, 0, 0, 604);
+  FSettingsFields[Index].Caption.Parent := Result;
+  FSettingsFields[Index].Editor := AEditor;
+  AEditor.Parent := Result;
+  AEditor.OnEnter := SettingsEditorEntered;
+end;
+
+procedure TMainForm.AddSettingsRow(const AControls: array of TControl;
+  const AMinimumWidth: Single);
+var
+  Index, I: Integer;
+begin
+  Index := Length(FSettingsRows);
+  SetLength(FSettingsRows, Index + 1);
+  SetLength(FSettingsRows[Index].Controls, Length(AControls));
+  SetLength(FSettingsRows[Index].MinimumHeights, Length(AControls));
+  FSettingsRows[Index].MinimumWidth := AMinimumWidth;
+  for I := 0 to High(AControls) do
+  begin
+    FSettingsRows[Index].Controls[I] := AControls[I];
+    FSettingsRows[Index].MinimumHeights[I] := AControls[I].Height;
+  end;
 end;
 
 procedure TMainForm.PopulateDisplayChoices;
@@ -258,12 +376,10 @@ end;
 
 procedure TMainForm.BuildSettingsPanel;
 
-  function NewEdit(const AY: Single; const APassword: Boolean = False): TEdit;
+  function NewEdit(const APassword: Boolean = False): TEdit;
   begin
     Result := TEdit.Create(FSettingsScroll);
     Result.Parent := FSettingsScroll;
-    Result.Position.X := 28;
-    Result.Position.Y := AY;
     Result.Width := 604;
     Result.Height := 54;
     Result.StyledSettings := Result.StyledSettings - [TStyledSetting.Size];
@@ -273,25 +389,25 @@ procedure TMainForm.BuildSettingsPanel;
     Result.OnTyping := SettingsInteraction;
   end;
 
-  function NewButton(const AText: string; const AX, AY, AWidth: Single;
+  function NewButton(const AText: string;
     const AClick: TNotifyEvent): TButton;
   begin
     Result := TButton.Create(FSettingsScroll);
     Result.Parent := FSettingsScroll;
     Result.Text := AText;
-    Result.Position.X := AX;
-    Result.Position.Y := AY;
-    Result.Width := AWidth;
+    Result.Width := 190;
     Result.Height := 56;
     Result.StyledSettings := Result.StyledSettings - [TStyledSetting.Size];
     Result.TextSettings.Font.Size := 21.6;
     Result.OnClick := AClick;
   end;
 
+var
+  Heading: TLabel;
 begin
   FSettingsPanel := TRectangle.Create(Self);
   FSettingsPanel.Parent := Self;
-  FSettingsPanel.Align := TAlignLayout.Center;
+  FSettingsPanel.Align := TAlignLayout.None;
   FSettingsPanel.Width := 660;
   FSettingsPanel.Height := 650;
   FSettingsPanel.XRadius := 18;
@@ -300,52 +416,55 @@ begin
   FSettingsPanel.Stroke.Color := BorderColor;
   FSettingsPanel.Stroke.Thickness := 2;
   FSettingsPanel.Visible := False;
+  FSettingsPanel.ClipChildren := True;
 
   FSettingsScroll := TScrollBox.Create(FSettingsPanel);
   FSettingsScroll.Parent := FSettingsPanel;
   FSettingsScroll.Align := TAlignLayout.Client;
   FSettingsScroll.Margins.Rect := TRectF.Create(3, 3, 3, 3);
 
-  with AddSettingsLabel('Einstellungen', 28, 12, 604) do
+  FSettingsScroll.ClipChildren := True;
+  FSettingsScroll.Bounces := TBehaviorBoolean.False;
+  Heading := AddSettingsLabel('Einstellungen', 28, 12, 604);
+  with Heading do
   begin
     TextSettings.Font.Size := 24;
     TextSettings.Font.Style := [TFontStyle.fsBold];
     TextSettings.FontColor := TextColor;
     Height := 38;
   end;
+  AddSettingsRow([Heading]);
 
 {$IF Defined(MSWINDOWS)}
-  AddSettingsLabel('OpenAI Organization Admin-Key (leer = unverändert)', 28, 54, 604);
-  FKeyEdit := NewEdit(76, True);
+  FKeyEdit := NewEdit(True);
   FKeyEdit.TextPrompt := 'sk-admin-…';
+  AddSettingsRow([AddSettingsField(
+    'OpenAI Organization Admin-Key (leer = unverändert)', FKeyEdit)]);
 {$ELSE}
-  AddSettingsLabel('Android enthält absichtlich keinen OpenAI-Admin-Key.', 28, 54, 604);
+  AddSettingsRow([AddSettingsLabel(
+    'Android erhält die Werte vom Windows-Sammler.', 28, 54, 604)]);
 {$ENDIF}
 
-  AddSettingsLabel('Schreibgeschützter Windows-Sammler', 28, 132, 604);
-  FCollectorEdit := NewEdit(154);
+  FCollectorEdit := NewEdit;
   FCollectorEdit.Text := FSettings.CollectorUrl;
-  AddSettingsLabel('Viewer-Token (selbst wählen; auf beiden Geräten gleich)', 28, 210, 604);
-  FViewerTokenEdit := NewEdit(232, True);
+  AddSettingsRow([AddSettingsField(
+    'Schreibgeschützter Windows-Sammler', FCollectorEdit)]);
+  FViewerTokenEdit := NewEdit(True);
   FViewerTokenEdit.Text := FSettings.ViewerToken;
   FViewerTokenEdit.TextPrompt := 'Nur Windows: leer lassen';
+  AddSettingsRow([AddSettingsField(
+    'Viewer-Token (selbst wählen; auf beiden Geräten gleich)', FViewerTokenEdit)]);
 
-  AddSettingsLabel('Monats-/Periodenlimit in USD (0 = API bzw. unbekannt)', 28, 288, 390);
-  AddSettingsLabel('Abrechnungstag (1–28)', 440, 288, 192);
-  FLimitEdit := NewEdit(310);
-  FLimitEdit.Width := 390;
+  FLimitEdit := NewEdit;
   FLimitEdit.Text := FloatToStr(FSettings.SpendingLimit);
-  FBillingDayEdit := NewEdit(310);
-  FBillingDayEdit.Position.X := 440;
-  FBillingDayEdit.Width := 192;
+  FBillingDayEdit := NewEdit;
   FBillingDayEdit.Text := IntToStr(FSettings.BillingDay);
+  AddSettingsRow([
+    AddSettingsField('Monats-/Periodenlimit in USD (0 = API bzw. unbekannt)', FLimitEdit),
+    AddSettingsField('Abrechnungstag (1–28)', FBillingDayEdit)], 250);
 
-  AddSettingsLabel('Dashboard auf Bildschirm', 28, 366, 390);
-  AddSettingsLabel('Schwarz nach Minuten', 440, 366, 192);
   FDisplayCombo := TComboBox.Create(FSettingsScroll);
   FDisplayCombo.Parent := FSettingsScroll;
-  FDisplayCombo.Position.X := 28;
-  FDisplayCombo.Position.Y := 388;
   FDisplayCombo.Width := 390;
   FDisplayCombo.Height := 54;
   FDisplayCombo.ItemHeight := 50;
@@ -354,10 +473,25 @@ begin
   PopulateDisplayChoices;
   FDisplayCombo.OnClick := SettingsInteraction;
   FDisplayCombo.OnChange := SettingsInteraction;
-  FIdleEdit := NewEdit(388);
-  FIdleEdit.Position.X := 440;
-  FIdleEdit.Width := 192;
+  FIdleEdit := NewEdit;
   FIdleEdit.Text := IntToStr(FSettings.OtherDisplayIdleMinutes);
+  AddSettingsRow([
+    AddSettingsField('Dashboard auf Bildschirm', FDisplayCombo),
+    AddSettingsField('Schwarz nach Minuten', FIdleEdit)], 250);
+
+{$IF Defined(MSWINDOWS)}
+  FStartInTrayCheck := TCheckBox.Create(FSettingsScroll);
+  FStartInTrayCheck.Parent := FSettingsScroll;
+  FStartInTrayCheck.Text := 'Beim Start nur Sammler (Tray-Symbol)';
+  FStartInTrayCheck.StyledSettings := [];
+  FStartInTrayCheck.TextSettings.Font.Size := 18;
+  FStartInTrayCheck.TextSettings.FontColor := TextColor;
+  FStartInTrayCheck.WordWrap := True;
+  FStartInTrayCheck.Height := 54;
+  FStartInTrayCheck.IsChecked := FSettings.StartInTray;
+  FStartInTrayCheck.OnClick := SettingsInteraction;
+  AddSettingsRow([FStartInTrayCheck]);
+{$ENDIF}
 
   FMessageLabel := TLabel.Create(FSettingsScroll);
   FMessageLabel.Parent := FSettingsScroll;
@@ -369,24 +503,32 @@ begin
   FMessageLabel.StyledSettings := [];
   FMessageLabel.TextSettings.Font.Size := 13;
   FMessageLabel.TextSettings.FontColor := TextColor;
-  FMessageLabel.Text := 'Wachhalten: Montag bis Freitag, 10:00–18:00 Uhr. ' +
-    'Windows speichert den Key als AES-GCM → DPAPI (aktueller Nutzer) → Credential Manager.';
-
-  NewButton('Speichern', 28, 510, 190, SaveSettings);
-  NewButton('Abbrechen', 235, 510, 190, CancelSettings);
-  NewButton('App beenden', 442, 510, 190, ExitApplication);
+  FMessageLabel.Text := 'Wachhalten: Montag bis Freitag, 10:00–18:00 Uhr. '
 {$IF Defined(MSWINDOWS)}
-  NewButton('Demo anzeigen', 28, 574, 190, ShowDemo);
-  NewButton('API-Key löschen', 235, 574, 190, DeleteKey);
-  NewButton('Jetzt aktualisieren', 442, 574, 190, SaveSettings);
+    + 'Windows speichert den Key als AES-GCM → DPAPI (aktueller Nutzer) → Credential Manager.';
 {$ELSE}
-  NewButton('Demo anzeigen', 28, 574, 292, ShowDemo);
-  NewButton('Jetzt aktualisieren', 340, 574, 292, SaveSettings);
+    + 'Sammler-Adresse und Viewer-Token müssen zum Windows-Gerät passen.';
+{$ENDIF}
+  AddSettingsRow([FMessageLabel]);
+
+  AddSettingsRow([NewButton('Speichern', SaveSettings),
+    NewButton('Abbrechen', CancelSettings),
+    NewButton('App beenden', ExitApplication)], 180);
+{$IF Defined(MSWINDOWS)}
+  AddSettingsRow([NewButton('Demo anzeigen', ShowDemo),
+    NewButton('API-Key löschen', DeleteKey),
+    NewButton('Jetzt aktualisieren', SaveSettings)], 180);
+  AddSettingsRow([NewButton('Nur Sammler / Tray', EnterCollectorMode)]);
+{$ELSE}
+  AddSettingsRow([NewButton('Demo anzeigen', ShowDemo),
+    NewButton('Jetzt aktualisieren', SaveSettings)], 180);
 {$ENDIF}
   FDataStatusLabel := AddSettingsLabel('Codex: noch nicht abgefragt.', 28, 642, 604);
   FDataStatusLabel.Height := 120;
   FDataStatusLabel.WordWrap := True;
   FDataStatusLabel.TextSettings.VertAlign := TTextAlign.Leading;
+  AddSettingsRow([FDataStatusLabel]);
+  LayoutSettingsControls;
 end;
 
 procedure TMainForm.PaintDashboard(Sender: TObject; Canvas: TCanvas);
@@ -409,6 +551,10 @@ end;
 
 procedure TMainForm.FormShown(Sender: TObject);
 begin
+  FormResized(Self);
+  if FStarted then
+    Exit;
+  FStarted := True;
   if ((ParamCount > 0) and SameText(ParamStr(1), '--render-settings-preview')) or
      FindCmdLineSwitch('render-settings-preview', True) then
   begin
@@ -462,14 +608,21 @@ procedure TMainForm.RenderSettingsPreviewAndExit;
 var
   Bitmap: TBitmap;
   FileName: string;
+  PreviewWidth, PreviewHeight: Integer;
 begin
   FileName := IncludeTrailingPathDelimiter(ExtractFilePath(ParamStr(0))) +
     'settings-preview.png';
   if ParamCount >= 2 then
     FileName := ExpandFileName(ParamStr(2));
+  PreviewWidth := 720;
+  PreviewHeight := 690;
+  if ParamCount >= 3 then
+    PreviewWidth := EnsureRange(StrToIntDef(ParamStr(3), PreviewWidth), 160, 8192);
+  if ParamCount >= 4 then
+    PreviewHeight := EnsureRange(StrToIntDef(ParamStr(4), PreviewHeight), 160, 8192);
   try
-    FSettingsPanel.Width := 660;
-    FSettingsPanel.Height := 650;
+    FSettingsSafeInsets := TRectF.Empty;
+    FSettingsKeyboardVisible := False;
     FSettingsPanel.Visible := True;
 {$IF Defined(MSWINDOWS)}
     FKeyEdit.ApplyStyleLookup;
@@ -487,13 +640,22 @@ begin
     if FDisplayCombo.Items.Count > 1 then
       FDisplayCombo.ItemIndex := 1;
     FIdleEdit.Text := '10';
-    Bitmap := TBitmap.Create(720, 690);
+    LayoutSettingsPanel(TRectF.Create(0, 0, PreviewWidth, PreviewHeight));
+    FSettingsScroll.ViewportPosition := TPointF.Zero;
+    if ParamCount >= 5 then
+      FSettingsScroll.ViewportPosition := TPointF.Create(0,
+        EnsureRange(Single(StrToIntDef(ParamStr(5), 0)), Single(0),
+          Max(Single(0), FSettingsScroll.ContentBounds.Bottom -
+            FSettingsScroll.ClientHeight)));
+    Bitmap := TBitmap.Create(PreviewWidth, PreviewHeight);
     try
       if Bitmap.Canvas.BeginScene then
       try
         Bitmap.Canvas.Clear(BackgroundColor);
         FSettingsPanel.PaintTo(Bitmap.Canvas,
-          TRectF.Create(30, 20, 690, 670));
+          TRectF.Create(FSettingsPanel.Position.X, FSettingsPanel.Position.Y,
+            FSettingsPanel.Position.X + FSettingsPanel.Width,
+            FSettingsPanel.Position.Y + FSettingsPanel.Height));
       finally
         Bitmap.Canvas.EndScene;
       end;
@@ -511,12 +673,190 @@ end;
 
 procedure TMainForm.FormResized(Sender: TObject);
 begin
-  if FSettingsPanel <> nil then
+  LayoutSettingsPanel(ClientRect);
+  if FPaintBox <> nil then
+    FPaintBox.Repaint;
+end;
+
+procedure TMainForm.LayoutSettingsControls;
+const
+  HorizontalPadding = 20;
+  ControlGap = 12;
+var
+  RowIndex, ItemIndex, ColumnIndex, Columns, CountInLine, FieldIndex: Integer;
+  ContentWidth, ItemWidth, X, Y, RowHeight, ItemHeight, CaptionHeight: Single;
+  Item: TControl;
+  TextLayout: TTextLayout;
+
+  function TextHeight(const AText: string; const AFont: TFont;
+    const AWidth, AMinimumHeight: Single): Single;
   begin
-    FSettingsPanel.Width := Min(660, Max(330, ClientWidth - 24));
-    FSettingsPanel.Height := Min(650, Max(500, ClientHeight - 24));
+    TextLayout.BeginUpdate;
+    try
+      TextLayout.Font.Assign(AFont);
+      TextLayout.WordWrap := True;
+      TextLayout.MaxSize := TPointF.Create(Max(1, AWidth), 10000);
+      TextLayout.Text := AText;
+    finally
+      TextLayout.EndUpdate;
+    end;
+    Result := Max(AMinimumHeight, Ceil(TextLayout.TextHeight) + 4);
   end;
-  FPaintBox.Repaint;
+
+begin
+  if (FSettingsScroll = nil) or FSettingsLayoutBusy then
+    Exit;
+  FSettingsLayoutBusy := True;
+  TextLayout := nil;
+  try
+    // The style owns the viewport and scrollbars needed for ContentBounds.
+    FSettingsScroll.ApplyStyleLookup;
+    TextLayout := TTextLayoutManager.DefaultTextLayout.Create;
+    // Reserve room for a persistent scrollbar without reducing text or touch sizes.
+    ContentWidth := Max(1, FSettingsScroll.Width - 2 * HorizontalPadding - 16);
+    Y := 12;
+    for RowIndex := 0 to High(FSettingsRows) do
+    begin
+      Columns := Length(FSettingsRows[RowIndex].Controls);
+      if FSettingsRows[RowIndex].MinimumWidth > 0 then
+        Columns := Min(Columns, Max(1, Floor((ContentWidth + ControlGap) /
+          (FSettingsRows[RowIndex].MinimumWidth + ControlGap))));
+      ItemIndex := 0;
+      while ItemIndex < Length(FSettingsRows[RowIndex].Controls) do
+      begin
+        CountInLine := Min(Columns,
+          Length(FSettingsRows[RowIndex].Controls) - ItemIndex);
+        ItemWidth := (ContentWidth - (CountInLine - 1) * ControlGap) / CountInLine;
+        RowHeight := 0;
+        for ColumnIndex := 0 to CountInLine - 1 do
+        begin
+          Item := FSettingsRows[RowIndex].Controls[ItemIndex + ColumnIndex];
+          ItemHeight := FSettingsRows[RowIndex].MinimumHeights[ItemIndex + ColumnIndex];
+          if Item is TLabel then
+            ItemHeight := TextHeight(TLabel(Item).Text,
+              TLabel(Item).TextSettings.Font, ItemWidth, ItemHeight)
+          else if Item is TCheckBox then
+            ItemHeight := TextHeight(TCheckBox(Item).Text,
+              TCheckBox(Item).TextSettings.Font, ItemWidth - 36, ItemHeight);
+          for FieldIndex := 0 to High(FSettingsFields) do
+            if FSettingsFields[FieldIndex].Container = Item then
+            begin
+              // PaintTo cannot load styles itself; initialize nested labels here.
+              FSettingsFields[FieldIndex].Caption.ApplyStyleLookup;
+              CaptionHeight := TextHeight(FSettingsFields[FieldIndex].Caption.Text,
+                FSettingsFields[FieldIndex].Caption.TextSettings.Font, ItemWidth, 22);
+              FSettingsFields[FieldIndex].Caption.SetBounds(0, 0, ItemWidth, CaptionHeight);
+              FSettingsFields[FieldIndex].Editor.SetBounds(0, CaptionHeight + 4, ItemWidth, 54);
+              ItemHeight := CaptionHeight + 4 + 54;
+              Break;
+            end;
+          X := HorizontalPadding + ColumnIndex * (ItemWidth + ControlGap);
+          Item.SetBounds(X, Y, ItemWidth, ItemHeight);
+          RowHeight := Max(RowHeight, ItemHeight);
+        end;
+        // Keep the paired editors on the same baseline when one caption wraps.
+        for ColumnIndex := 0 to CountInLine - 1 do
+        begin
+          Item := FSettingsRows[RowIndex].Controls[ItemIndex + ColumnIndex];
+          for FieldIndex := 0 to High(FSettingsFields) do
+            if FSettingsFields[FieldIndex].Container = Item then
+            begin
+              Item.Height := RowHeight;
+              FSettingsFields[FieldIndex].Editor.Position.Y := RowHeight - 54;
+              Break;
+            end;
+        end;
+        Y := Y + RowHeight + ControlGap;
+        Inc(ItemIndex, CountInLine);
+      end;
+    end;
+    FSettingsScroll.RealignContent;
+    FSettingsScroll.ViewportPosition := TPointF.Create(0,
+      EnsureRange(FSettingsScroll.ViewportPosition.Y, Single(0),
+        Max(Single(0), Y - FSettingsScroll.ClientHeight)));
+  finally
+    TextLayout.Free;
+    FSettingsLayoutBusy := False;
+  end;
+end;
+
+procedure TMainForm.LayoutSettingsPanel(const AViewport: TRectF);
+var
+  Available: TRectF;
+  KeyboardTop: Single;
+  PanelWidth, PanelHeight, Margin: Single;
+begin
+  if (FSettingsPanel = nil) or FSettingsLayoutBusy then
+    Exit;
+  Available := TRectF.Create(
+    AViewport.Left + Max(0, FSettingsSafeInsets.Left),
+    AViewport.Top + Max(0, FSettingsSafeInsets.Top),
+    AViewport.Right - Max(0, FSettingsSafeInsets.Right),
+    AViewport.Bottom - Max(0, FSettingsSafeInsets.Bottom));
+  if FSettingsKeyboardVisible and (FSettingsKeyboardBounds.Height > 0) then
+  begin
+    KeyboardTop := ScreenToClient(TPointF.Create(
+      FSettingsKeyboardBounds.Left, FSettingsKeyboardBounds.Top)).Y;
+    if KeyboardTop > Available.Top then
+      Available.Bottom := Min(Available.Bottom, KeyboardTop);
+  end;
+  if (Available.Width <= 0) or (Available.Height <= 0) then
+    Available := AViewport;
+  Margin := Min(12, Max(0, Min(Available.Width, Available.Height) / 20));
+  PanelWidth := Max(1, Min(660, Available.Width - 2 * Margin));
+  PanelHeight := Max(1, Min(650, Available.Height - 2 * Margin));
+  FSettingsPanel.SetBounds(
+    Available.Left + (Available.Width - PanelWidth) / 2,
+    Available.Top + (Available.Height - PanelHeight) / 2,
+    PanelWidth, PanelHeight);
+  LayoutSettingsControls;
+  RevealSettingsEditor;
+end;
+
+procedure TMainForm.SettingsSafeAreaChanged(Sender: TObject; const AInsets: TRectF);
+begin
+  FSettingsSafeInsets := AInsets;
+  FormResized(Sender);
+end;
+
+procedure TMainForm.SettingsKeyboardChanged(Sender: TObject;
+  KeyboardVisible: Boolean; const Bounds: TRect);
+begin
+  FSettingsKeyboardVisible := KeyboardVisible;
+  FSettingsKeyboardBounds := Bounds;
+  FormResized(Sender);
+end;
+
+procedure TMainForm.SettingsEditorEntered(Sender: TObject);
+begin
+  RegisterInteraction;
+  RevealSettingsEditor;
+end;
+
+procedure TMainForm.RevealSettingsEditor;
+var
+  Editor: TControl;
+  TopLeft, BottomRight: TPointF;
+  Offset, NewY: Single;
+begin
+  if (FSettingsScroll = nil) or not FSettingsPanel.Visible or (Focused = nil) then
+    Exit;
+  if not (Focused.GetObject is TControl) then
+    Exit;
+  Editor := TControl(Focused.GetObject);
+  if not FSettingsScroll.IsChild(Editor) then
+    Exit;
+  TopLeft := FSettingsScroll.AbsoluteToLocal(Editor.LocalToAbsolute(TPointF.Zero));
+  BottomRight := FSettingsScroll.AbsoluteToLocal(Editor.LocalToAbsolute(
+    TPointF.Create(Editor.Width, Editor.Height)));
+  Offset := 0;
+  if TopLeft.Y < 12 then
+    Offset := TopLeft.Y - 12
+  else if BottomRight.Y > FSettingsScroll.ClientHeight - 12 then
+    Offset := BottomRight.Y - FSettingsScroll.ClientHeight + 12;
+  NewY := EnsureRange(FSettingsScroll.ViewportPosition.Y + Offset, Single(0),
+    Max(Single(0), FSettingsScroll.ContentBounds.Bottom - FSettingsScroll.ClientHeight));
+  FSettingsScroll.ViewportPosition := TPointF.Create(0, NewY);
 end;
 
 procedure TMainForm.FormKeyDown(Sender: TObject; var Key: Word;
@@ -526,7 +866,7 @@ begin
   if Key = vkF2 then
     ToggleSettings(Sender)
   else if Key = vkEscape then
-    FSettingsPanel.Visible := False;
+    CancelSettings(Sender);
 end;
 
 procedure TMainForm.DashboardMouseDown(Sender: TObject; Button: TMouseButton;
@@ -592,8 +932,18 @@ begin
     FBillingDayEdit.Text := IntToStr(FSettings.BillingDay);
     PopulateDisplayChoices;
     FIdleEdit.Text := IntToStr(FSettings.OtherDisplayIdleMinutes);
+{$IF Defined(MSWINDOWS)}
+    FStartInTrayCheck.IsChecked := FSettings.StartInTray;
+{$ENDIF}
+    FormResized(Self);
+    FSettingsScroll.ViewportPosition := TPointF.Zero;
     FSettingsPanel.BringToFront;
-  end;
+  end
+{$IF Defined(MSWINDOWS)}
+  else if FCollectorMode then
+    EnterCollectorMode(nil)
+{$ENDIF}
+  ;
 end;
 
 procedure TMainForm.SaveSettings(Sender: TObject);
@@ -613,6 +963,7 @@ begin
     begin
       FMessageLabel.TextSettings.FontColor := TAlphaColor($FFFF8A80);
       FMessageLabel.Text := 'API-Key konnte nicht gespeichert werden: ' + ErrorText;
+      LayoutSettingsControls;
       Exit;
     end;
     FKeyEdit.Text := '';
@@ -631,6 +982,9 @@ begin
     FSettings.DashboardDisplay := -1;
   if TryStrToInt(FIdleEdit.Text, IntValue) then
     FSettings.OtherDisplayIdleMinutes := EnsureRange(IntValue, 1, 120);
+{$IF Defined(MSWINDOWS)}
+  FSettings.StartInTray := FStartInTrayCheck.IsChecked;
+{$ENDIF}
   FSettings.Save;
   FreeAndNil(FPublisher);
   FPublisher := TSnapshotPublisher.Create(FSettings.ListenPort, FSettings.ViewerToken);
@@ -639,17 +993,29 @@ begin
   FSettingsPanel.Visible := False;
   FNextRefresh := 0;
   BeginRefresh;
+{$IF Defined(MSWINDOWS)}
+  if FCollectorMode then
+    EnterCollectorMode(nil);
+{$ENDIF}
 end;
 
 procedure TMainForm.CancelSettings(Sender: TObject);
 begin
   RegisterInteraction;
   FSettingsPanel.Visible := False;
+{$IF Defined(MSWINDOWS)}
+  if FCollectorMode then
+    EnterCollectorMode(nil);
+{$ENDIF}
 end;
 
 procedure TMainForm.ShowDemo(Sender: TObject);
 begin
   RegisterInteraction;
+{$IF Defined(MSWINDOWS)}
+  if FCollectorMode then
+    ShowDashboard;
+{$ENDIF}
   FSnapshot.MakeDemo;
   FSnapshot.SpendingLimit := Max(FSnapshot.SpendingLimit, FSettings.SpendingLimit);
   FSnapshot.Recalculate;
@@ -666,6 +1032,98 @@ begin
 end;
 
 {$IF Defined(MSWINDOWS)}
+procedure TMainForm.TrayAction(Sender: TObject; AAction: TTrayAction);
+begin
+  if FClosing then
+    Exit;
+  case AAction of
+    taShowDashboard: ShowDashboard;
+    taShowSettings: ShowCollectorSettings;
+    taCollectorMode: EnterCollectorMode(Sender);
+    taExit: ExitApplication(Sender);
+  end;
+end;
+
+procedure TMainForm.EnterCollectorMode(Sender: TObject);
+var
+  ErrorText: string;
+begin
+  { Never hide the only UI unless the tray icon is actually available. }
+  if (FTray = nil) or not FTray.Show(ErrorText) then
+  begin
+    FMessageLabel.Text := 'Sammlermodus nicht verfügbar: ' + ErrorText;
+    FSettingsPanel.Visible := True;
+    FormResized(Self);
+    Exit;
+  end;
+  FPlatform.SetCollectorOnly(True);
+  FCollectorMode := True;
+  FAllowCollectorSettings := False;
+  FTray.SetCollectorMode(True);
+  FTray.UpdateStatus(FSnapshot.StatusText);
+  FSettingsPanel.Visible := False;
+  Hide;
+  Winapi.Windows.ShowWindow(FMX.Platform.Win.ApplicationHWND, SW_HIDE);
+  { A hidden initial main form never receives OnShow. The timer starts fetching. }
+end;
+
+procedure TMainForm.ShowDashboard;
+begin
+  FCollectorMode := False;
+  FAllowCollectorSettings := False;
+  FPlatform.SetCollectorOnly(False);
+  if FTray <> nil then
+    FTray.SetCollectorMode(False);
+  WindowState := TWindowState.wsNormal;
+  FPlatform.PlaceDashboard(FSettings.DashboardDisplay);
+  FStarted := True;
+  Winapi.Windows.ShowWindow(FMX.Platform.Win.ApplicationHWND, SW_SHOWNOACTIVATE);
+  Show;
+  BringToFront;
+  FormResized(Self);
+  RegisterInteraction;
+end;
+
+procedure TMainForm.ShowCollectorSettings;
+var
+  WorkArea: TRectF;
+  WindowWidth, WindowHeight: Single;
+begin
+  if FCollectorMode then
+  begin
+    FAllowCollectorSettings := True;
+    FStarted := True;
+    WindowState := TWindowState.wsNormal;
+    FullScreen := False;
+    FormStyle := TFormStyle.Normal;
+    BorderStyle := TFmxFormBorderStyle.Sizeable;
+    WorkArea := Screen.DisplayFromPoint(Screen.MousePos).Workarea;
+    WindowWidth := Min(720, Max(1, WorkArea.Width - 24));
+    WindowHeight := Min(780, Max(1, WorkArea.Height - 24));
+    Position := TFormPosition.Designed;
+    SetBoundsF(TRectF.Create(WorkArea.CenterPoint.X - WindowWidth / 2,
+      WorkArea.CenterPoint.Y - WindowHeight / 2,
+      WorkArea.CenterPoint.X + WindowWidth / 2,
+      WorkArea.CenterPoint.Y + WindowHeight / 2));
+    Winapi.Windows.ShowWindow(FMX.Platform.Win.ApplicationHWND, SW_SHOWNOACTIVATE);
+    Show;
+    BringToFront;
+  end
+  else
+    ShowDashboard;
+  FSettingsPanel.Visible := False;
+  ToggleSettings(Self);
+end;
+
+procedure TMainForm.FormClosing(Sender: TObject; var Action: TCloseAction);
+begin
+  if FCollectorMode and not FClosing then
+  begin
+    Action := TCloseAction.caNone;
+    EnterCollectorMode(Sender);
+  end;
+end;
+
 procedure TMainForm.DeleteKey(Sender: TObject);
 var
   ErrorText: string;
@@ -675,6 +1133,7 @@ begin
     FMessageLabel.Text := 'Der gespeicherte API-Key wurde entfernt.'
   else
     FMessageLabel.Text := 'Löschen fehlgeschlagen: ' + ErrorText;
+  LayoutSettingsControls;
 end;
 {$ENDIF}
 
@@ -691,6 +1150,12 @@ var
 begin
   if FFetching or FClosing then
     Exit;
+  if FWorker <> nil then
+  begin
+    if not FWorker.Finished then
+      Exit;
+    FreeAndNil(FWorker);
+  end;
   FFetching := True;
   FNextRefresh := IncSecond(Now, FSettings.RefreshSeconds);
 {$IF Defined(MSWINDOWS)}
@@ -802,6 +1267,12 @@ begin
     FDataStatusLabel.Text := 'Codex-Nutzungsdaten verfügbar.'
   else
     FDataStatusLabel.Text := 'Codex: noch keine Nutzungsdaten erhalten.';
+  if FSettingsPanel.Visible then
+    LayoutSettingsControls;
+{$IF Defined(MSWINDOWS)}
+  if FTray <> nil then
+    FTray.UpdateStatus(FSnapshot.StatusText);
+{$ENDIF}
   FPaintBox.Repaint;
   UpdateExternalDisplay(True);
 end;

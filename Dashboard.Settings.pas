@@ -11,6 +11,7 @@ type
     ViewerToken: string;
     ListenPort: Integer;
     DashboardDisplay: Integer;
+    StartInTray: Boolean;
     SpendingLimit: Double;
     BillingDay: Integer;
     RefreshSeconds: Integer;
@@ -40,6 +41,7 @@ begin
   ViewerToken := '';
   ListenPort := 8787;
   DashboardDisplay := -1;
+  StartInTray := False;
   SpendingLimit := 0;
   BillingDay := 1;
   RefreshSeconds := 30;
@@ -61,6 +63,7 @@ begin
     ViewerToken := Ini.ReadString('Network', 'ViewerToken', ViewerToken);
     ListenPort := EnsureRange(Ini.ReadInteger('Network', 'ListenPort', ListenPort), 1, 65535);
     DashboardDisplay := Ini.ReadInteger('Display', 'DashboardDisplay', DashboardDisplay);
+    StartInTray := Ini.ReadBool('Display', 'StartInTray', StartInTray);
     SpendingLimit := Ini.ReadFloat('Usage', 'SpendingLimit', SpendingLimit);
     BillingDay := EnsureRange(Ini.ReadInteger('Usage', 'BillingDay', BillingDay), 1, 28);
     RefreshSeconds := EnsureRange(Ini.ReadInteger('Usage', 'RefreshSeconds', RefreshSeconds), 10, 3600);
@@ -87,6 +90,7 @@ begin
     Ini.WriteString('Network', 'ViewerToken', ViewerToken);
     Ini.WriteInteger('Network', 'ListenPort', ListenPort);
     Ini.WriteInteger('Display', 'DashboardDisplay', DashboardDisplay);
+    Ini.WriteBool('Display', 'StartInTray', StartInTray);
     Ini.WriteFloat('Usage', 'SpendingLimit', SpendingLimit);
     Ini.WriteInteger('Usage', 'BillingDay', BillingDay);
     Ini.WriteInteger('Usage', 'RefreshSeconds', RefreshSeconds);

@@ -51,6 +51,7 @@ type
     FExternalSize: TSize;
 {$IF Defined(MSWINDOWS)}
     FBlackForms: TObjectList<TForm>;
+    FCollectorOnly: Boolean;
     FKnownDisplayCount: Integer;
     FDisplaySignature: string;
     FLastInputTick: Cardinal;
@@ -78,6 +79,9 @@ type
     constructor Create(const AMainForm: TCommonCustomForm);
     destructor Destroy; override;
     procedure PlaceDashboard(const ARequestedDisplay: Integer);
+{$IF Defined(MSWINDOWS)}
+    procedure SetCollectorOnly(const AEnabled: Boolean);
+{$ENDIF}
     procedure GetDisplayChoices(out AValues: TArray<Integer>;
       out ACaptions: TArray<string>);
     procedure Tick(const AStartHour, AEndHour, AIdleMinutes: Integer);
@@ -170,8 +174,14 @@ procedure TPlatformCoordinator.SetKeepAwake(const AEnabled: Boolean);
 {$IF Defined(MSWINDOWS)}
 var
   NowTick: UInt64;
+  Flags: EXECUTION_STATE;
 {$ENDIF}
 begin
+{$IF Defined(MSWINDOWS)}
+  Flags := ES_CONTINUOUS or ES_SYSTEM_REQUIRED;
+  if not FCollectorOnly then
+    Flags := Flags or ES_DISPLAY_REQUIRED;
+{$ENDIF}
   if FKeepAwake = AEnabled then
   begin
 {$IF Defined(MSWINDOWS)}
@@ -180,8 +190,7 @@ begin
       NowTick := GetTickCount64;
       if (FLastKeepAwakeRefreshTick = 0) or
          (NowTick - FLastKeepAwakeRefreshTick >= 60000) then
-        if SetThreadExecutionState(ES_CONTINUOUS or ES_DISPLAY_REQUIRED or
-          ES_SYSTEM_REQUIRED) <> 0 then
+        if SetThreadExecutionState(Flags) <> 0 then
           FLastKeepAwakeRefreshTick := NowTick;
     end;
 {$ENDIF}
@@ -190,8 +199,7 @@ begin
 {$IF Defined(MSWINDOWS)}
   if AEnabled then
   begin
-    if SetThreadExecutionState(ES_CONTINUOUS or ES_DISPLAY_REQUIRED or
-      ES_SYSTEM_REQUIRED) = 0 then
+    if SetThreadExecutionState(Flags) = 0 then
       Exit;
     FLastKeepAwakeRefreshTick := GetTickCount64;
   end
@@ -206,6 +214,20 @@ begin
   FKeepAwake := AEnabled;
 end;
 
+{$IF Defined(MSWINDOWS)}
+procedure TPlatformCoordinator.SetCollectorOnly(const AEnabled: Boolean);
+begin
+  if FCollectorOnly = AEnabled then
+    Exit;
+  { Release the old display/system request before changing its meaning. }
+  SetKeepAwake(False);
+  FCollectorOnly := AEnabled;
+  FBlackForms.Clear;
+  FKnownDisplayCount := -1;
+  FDisplaySignature := '';
+end;
+{$ENDIF}
+
 procedure TPlatformCoordinator.PlaceDashboard(const ARequestedDisplay: Integer);
 {$IF Defined(MSWINDOWS)}
 var
@@ -214,6 +236,8 @@ var
 {$ENDIF}
 begin
 {$IF Defined(MSWINDOWS)}
+  if FCollectorOnly or (Screen.DisplayCount = 0) then
+    Exit;
   Selected := ARequestedDisplay;
   if (Selected < 0) or (Selected >= Screen.DisplayCount) then
   begin
@@ -326,6 +350,9 @@ var
 begin
   SetKeepAwake(InKeepAwakeWindow(AStartHour, AEndHour));
 {$IF Defined(MSWINDOWS)}
+  { The collector continues to run, but never takes ownership of any monitor. }
+  if FCollectorOnly then
+    Exit;
   if (Screen.DisplayCount <> FKnownDisplayCount) or
      (WindowsDisplaySignature <> FDisplaySignature) then
     RebuildWindowsDisplays;
@@ -441,9 +468,9 @@ begin
   FBlackForms.Clear;
   FKnownDisplayCount := Screen.DisplayCount;
   FDisplaySignature := WindowsDisplaySignature;
-  if FKnownDisplayCount = 0 then
+  if FCollectorOnly or (FKnownDisplayCount = 0) then
     Exit;
-  if FTargetDisplay >= FKnownDisplayCount then
+  if (FTargetDisplay < 0) or (FTargetDisplay >= FKnownDisplayCount) then
     FTargetDisplay := 0;
   Display := Screen.Displays[FTargetDisplay];
   FMainForm.SetBoundsF(Display.Bounds);

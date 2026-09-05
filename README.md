@@ -27,6 +27,9 @@ Browser werden zur Laufzeit nicht benötigt.
   Tablet-Displays
 - Wachhalten Montag bis Freitag von 10:00 bis 18:00 Uhr Ortszeit
 - Vollbild- und Mehrmonitorbetrieb
+- Windows-Sammlermodus ohne Dashboard-Fenster, mit `Vcl.ExtCtrls.TTrayIcon`
+- scrollbare Einstellungen innerhalb der verfügbaren Bildschirmfläche,
+  einschließlich Android-Safe-Area und Bildschirmtastatur
 
 ## Projekt öffnen und Target wechseln
 
@@ -108,6 +111,10 @@ eingetragen:
 - Sammler: `http://<LAN-IP-des-Windows-PCs>:8787/snapshot`
 - derselbe Viewer-Token wie unter Windows
 
+Sowohl die API- als auch die lokalen Codex-Statistiken kommen vom Windows-Sammler.
+Android fragt OpenAI nicht selbst ab. Der Windows-PC muss deshalb eingeschaltet
+und der Sammler gestartet sein.
+
 Gegebenenfalls muss TCP 8787 in der Windows-Firewall für das private Netz
 freigegeben werden. Der Snapshot enthält ausschließlich aufbereitete Statistik,
 nicht den Admin-Key. HTTP ist für ein vertrauenswürdiges internes LAN gedacht; für
@@ -129,6 +136,39 @@ Display nicht angeschlossen, fällt die Anzeige sicher auf das Tablet zurück.
 Die App kann auf Android nur ihre eigene Activity schwärzen beziehungsweise
 anzeigen; fremde Apps oder die Android-Systemoberfläche werden nicht global
 überlagert.
+
+## Windows nur als Sammler / Tray
+
+In den Einstellungen wechselt **Nur Sammler / Tray** sofort in den Hintergrund.
+Der Snapshot-Server und die regelmäßigen Abfragen laufen unverändert weiter.
+**Beim Start nur Sammler (Tray-Symbol)** ist eine separate, mit **Speichern**
+gesicherte Startoption. Alternativ kann eine Verknüpfung
+`OpenAIUsageDashboard.exe --collector` verwenden. Ohne gespeicherten Admin-Key
+öffnet sich zunächst die Einrichtung; bei einem fehlgeschlagenen Tray-Start
+wird das Fenster nicht versteckt.
+
+Ein Linksklick auf das Tray-Symbol zeigt das Dashboard wieder an. Das Kontextmenü
+bietet **Dashboard anzeigen**, **Einstellungen**, **Nur Sammler** und **Beenden**.
+Einstellungen lassen sich im Sammlermodus in einem normalen Fenster bearbeiten;
+Speichern, Abbrechen und das Schließen dieses Fensters kehren zum Tray zurück.
+**App beenden** bzw. **Beenden** stoppt auch den Sammler.
+
+Im Sammlermodus gibt es keine schwarzen Abdeckfenster und keine Anforderung,
+die Monitore wachzuhalten. Montag bis Freitag zwischen 10 und 18 Uhr verhindert
+`ES_SYSTEM_REQUIRED` lediglich den automatischen Standby des PCs, damit Android
+weiter Daten abrufen kann. Außerhalb dieses Zeitfensters gelten wieder die
+normalen Energieeinstellungen. Manuell ausgelöster Standby wird nicht verhindert.
+
+Das ist bewusst kein Windows-Systemdienst: Die Anwendung läuft im angemeldeten
+Benutzerkonto, damit der mit DPAPI geschützte API-Key und die dort angemeldete
+Codex-CLI verfügbar bleiben. Ein Start vor der Benutzeranmeldung wird nicht
+eingerichtet. Die Tray-Unit bindet die VCL-Komponente ausschließlich für Windows
+ein; Android bleibt eine FMX-Anwendung ohne diese Abhängigkeit.
+
+Die Einstellungen passen sich auch flachen Landscape-Fenstern an. Sie bleiben
+innerhalb der nutzbaren Fläche; weitere Inhalte sind vertikal erreichbar. Auf
+schmalen Bildschirmen werden Felder und Buttons untereinander angeordnet, ohne
+die Touchflächen oder Schrift zu verkleinern.
 
 ## Mehrmonitor- und Wachhalteverhalten
 
@@ -157,6 +197,7 @@ RefreshSeconds=30
 UseDemoWhenUnavailable=1
 
 [Display]
+StartInTray=0
 KeepAwakeStartHour=10
 KeepAwakeEndHour=18
 OtherDisplayIdleMinutes=10
@@ -179,6 +220,14 @@ OtherDisplayIdleMinutes=10
   AES-256-GCM-Rundlauf, den sicheren WinRT-Pufferzugriff sowie die Ablehnung eines
   manipulierten Authentifizierungstags. Der optionale DPAPI-Teil benötigt einen
   normalen interaktiven Windows-Benutzerkontext.
+- `tests/Tray.Tests.dpr` prüft das VCL-TrayIcon zusammen mit FMX: Anzeigen,
+  Statuswechsel, Ausblenden, erneutes Anzeigen und Freigeben. `-diagnose`
+  beschreibt den verwendeten Windows-Desktop. In der isolierten Codex-Umgebung
+  fehlt der Shell-Infobereich; hier ist nur der sichere Fehlerpfad mit
+  `-expect-unavailable` prüfbar, nicht der positive Tray-Lauf.
+- `tests/Platform.Tests.dpr` prüft die `CanShow`-Sperre für ein unsichtbares
+  FMX-Fenster und stellt sicher, dass der Sammlermodus keine Abdeckfenster
+  erzeugt und das Dashboard weder anzeigt noch auf einen Monitor verschiebt.
 - `tests/Codex.Smoke.dpr` ist ein optionaler Live-Test gegen eine lokal angemeldete
   Codex-CLI; `--discover` prüft nur die Programmsuche. Diese findet hier die
   Desktop-CLI auch bei reduziertem PATH. Der angemeldete Liveabruf konnte in der
