@@ -263,14 +263,14 @@ begin
   SetLength(AValues, Screen.DisplayCount + 1);
   SetLength(ACaptions, Screen.DisplayCount + 1);
   AValues[0] := -1;
-  ACaptions[0] := 'Automatisch · erster externer Bildschirm';
+  ACaptions[0] := 'Automatisch · externer Bildschirm';
   for I := 0 to Screen.DisplayCount - 1 do
   begin
     Bounds := Screen.Displays[I].PhysicalBounds;
-    Description := Format('Bildschirm %d · %d×%d', [I + 1,
+    Description := Format('Monitor %d · %d×%d', [I + 1,
       Bounds.Width, Bounds.Height]);
     if Screen.Displays[I].Primary then
-      Description := Description + ' · Hauptbildschirm';
+      Description := Description + ' · Haupt';
     AValues[I + 1] := I;
     ACaptions[I + 1] := Description;
   end;
@@ -294,7 +294,7 @@ begin
     SetLength(ACaptions, Displays.Length + 2);
   end;
   AValues[0] := -1;
-  ACaptions[0] := 'Automatisch · erster externer Bildschirm';
+  ACaptions[0] := 'Automatisch · externer Bildschirm';
   AValues[1] := -2;
   ACaptions[1] := 'Tablet · integrierter Bildschirm';
   if Displays <> nil then

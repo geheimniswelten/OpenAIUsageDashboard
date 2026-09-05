@@ -19,6 +19,8 @@ Browser werden zur Laufzeit nicht benötigt.
 - sichtbarer Neustart von Ist-/Trendlinie am konfigurierten Abrechnungstag
 - lokale Codex-App-Server-Daten unter Windows: Rate-Limits, Reset-Zeitpunkte,
   Reset-Credits und Tokenstatistiken
+- vergrößerte Kleinbeschriftungen für bessere Lesbarkeit auf Wand- und
+  Tablet-Displays
 - Wachhalten Montag bis Freitag von 10:00 bis 18:00 Uhr Ortszeit
 - Vollbild- und Mehrmonitorbetrieb
 
@@ -36,11 +38,13 @@ den hausinternen HTTP-Sammler Klartextverkehr.
 
 ## Windows einrichten
 
-Beim ersten Start öffnet sich die Einstellungskarte. Alle Beschriftungen sind für
-den dunklen Hintergrund fest auf helle Schrift gesetzt. Später öffnet ein Klick
-oder Fingertipp auf den Statusblock oben rechts (`Aktuell` / `Stand`) die Karte;
-`F2` bleibt als Tastaturkürzel erhalten. Über **App beenden** lässt sich die
-Anwendung auch auf einem Touch-Gerät vollständig schließen.
+Beim ersten Start öffnet sich die Einstellungskarte. Die Beschriftungen sind für
+den dunklen Hintergrund fest auf helle Schrift gesetzt; Eingabefelder behalten
+ihren hellen FMX-Standardstil mit dunkler Schrift. Edit- und Button-Schrift ist
+für Touchbedienung um 80 % vergrößert. Später öffnet ein Klick oder Fingertipp auf
+den Statusblock oben rechts (`Aktuell` / `Stand`) die Karte; `F2` bleibt als
+Tastaturkürzel erhalten. Über **App beenden** lässt sich die Anwendung auch auf
+einem Touch-Gerät vollständig schließen.
 
 1. Einen OpenAI **Organization Admin Key** eingeben.
 2. Falls das gewünschte Periodenlimit nicht über die API verfügbar ist, das Limit

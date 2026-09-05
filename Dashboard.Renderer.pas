@@ -155,9 +155,20 @@ end;
 
 procedure TDashboardRenderer.SetFont(const ACanvas: TCanvas; const ASize: Single;
   const ABold: Boolean);
+var
+  ReadableSize: Single;
 begin
+  ReadableSize := ASize;
+  if ASize <= 8 then
+    ReadableSize := ASize + 3
+  else if ASize <= 10 then
+    ReadableSize := ASize + 2.5
+  else if ASize <= 12 then
+    ReadableSize := ASize + 2
+  else if ASize <= 15 then
+    ReadableSize := ASize + 1;
   ACanvas.Font.Family := 'Segoe UI';
-  ACanvas.Font.Size := Max(8, ASize * FScale);
+  ACanvas.Font.Size := Max(9, ReadableSize * FScale);
   if ABold then
     ACanvas.Font.Style := [TFontStyle.fsBold]
   else

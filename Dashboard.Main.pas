@@ -209,7 +209,7 @@ begin
   Result.Parent := FSettingsScroll;
   Result.Text := AText;
   Result.StyledSettings := [];
-  Result.TextSettings.Font.Size := 12;
+  Result.TextSettings.Font.Size := 14;
   Result.TextSettings.FontColor := TextColor;
   Result.Position.X := AX;
   Result.Position.Y := AY;
@@ -246,7 +246,7 @@ begin
     for I := 0 to FDisplayCombo.Count - 1 do
     begin
       FDisplayCombo.ListItems[I].StyledSettings := [];
-      FDisplayCombo.ListItems[I].TextSettings.Font.Size := 12;
+      FDisplayCombo.ListItems[I].TextSettings.Font.Size := 21.6;
       FDisplayCombo.ListItems[I].TextSettings.FontColor := TAlphaColor($FF102018);
     end;
   finally
@@ -264,10 +264,9 @@ procedure TMainForm.BuildSettingsPanel;
     Result.Position.X := 28;
     Result.Position.Y := AY;
     Result.Width := 604;
-    Result.Height := 38;
-    Result.StyledSettings := [];
-    Result.TextSettings.Font.Size := 12;
-    Result.TextSettings.FontColor := TextColor;
+    Result.Height := 54;
+    Result.StyledSettings := Result.StyledSettings - [TStyledSetting.Size];
+    Result.TextSettings.Font.Size := 21.6;
     Result.Password := APassword;
     Result.OnClick := SettingsInteraction;
     Result.OnTyping := SettingsInteraction;
@@ -282,7 +281,9 @@ procedure TMainForm.BuildSettingsPanel;
     Result.Position.X := AX;
     Result.Position.Y := AY;
     Result.Width := AWidth;
-    Result.Height := 44;
+    Result.Height := 56;
+    Result.StyledSettings := Result.StyledSettings - [TStyledSetting.Size];
+    Result.TextSettings.Font.Size := 21.6;
     Result.OnClick := AClick;
   end;
 
@@ -304,53 +305,54 @@ begin
   FSettingsScroll.Align := TAlignLayout.Client;
   FSettingsScroll.Margins.Rect := TRectF.Create(3, 3, 3, 3);
 
-  with AddSettingsLabel('Einstellungen', 28, 15, 604) do
+  with AddSettingsLabel('Einstellungen', 28, 12, 604) do
   begin
-    TextSettings.Font.Size := 22;
+    TextSettings.Font.Size := 24;
     TextSettings.Font.Style := [TFontStyle.fsBold];
     TextSettings.FontColor := TextColor;
     Height := 38;
   end;
 
 {$IF Defined(MSWINDOWS)}
-  AddSettingsLabel('OpenAI Organization Admin-Key (leer = unverändert)', 28, 61, 604);
-  FKeyEdit := NewEdit(84, True);
+  AddSettingsLabel('OpenAI Organization Admin-Key (leer = unverändert)', 28, 54, 604);
+  FKeyEdit := NewEdit(76, True);
   FKeyEdit.TextPrompt := 'sk-admin-…';
 {$ELSE}
-  AddSettingsLabel('Android enthält absichtlich keinen OpenAI-Admin-Key.', 28, 68, 604);
+  AddSettingsLabel('Android enthält absichtlich keinen OpenAI-Admin-Key.', 28, 54, 604);
 {$ENDIF}
 
   AddSettingsLabel('Schreibgeschützter Windows-Sammler', 28, 132, 604);
-  FCollectorEdit := NewEdit(155);
+  FCollectorEdit := NewEdit(154);
   FCollectorEdit.Text := FSettings.CollectorUrl;
-  AddSettingsLabel('Viewer-Token für den Sammler', 28, 202, 604);
-  FViewerTokenEdit := NewEdit(225, True);
+  AddSettingsLabel('Viewer-Token für den Sammler', 28, 210, 604);
+  FViewerTokenEdit := NewEdit(232, True);
   FViewerTokenEdit.Text := FSettings.ViewerToken;
 
-  AddSettingsLabel('Monats-/Periodenlimit in USD (0 = API bzw. unbekannt)', 28, 272, 390);
-  AddSettingsLabel('Abrechnungstag (1–28)', 440, 272, 192);
-  FLimitEdit := NewEdit(295);
+  AddSettingsLabel('Monats-/Periodenlimit in USD (0 = API bzw. unbekannt)', 28, 288, 390);
+  AddSettingsLabel('Abrechnungstag (1–28)', 440, 288, 192);
+  FLimitEdit := NewEdit(310);
   FLimitEdit.Width := 390;
   FLimitEdit.Text := FloatToStr(FSettings.SpendingLimit);
-  FBillingDayEdit := NewEdit(295);
+  FBillingDayEdit := NewEdit(310);
   FBillingDayEdit.Position.X := 440;
   FBillingDayEdit.Width := 192;
   FBillingDayEdit.Text := IntToStr(FSettings.BillingDay);
 
-  AddSettingsLabel('Dashboard auf Bildschirm', 28, 342, 390);
-  AddSettingsLabel('Schwarz nach Minuten', 440, 342, 192);
+  AddSettingsLabel('Dashboard auf Bildschirm', 28, 366, 390);
+  AddSettingsLabel('Schwarz nach Minuten', 440, 366, 192);
   FDisplayCombo := TComboBox.Create(FSettingsScroll);
   FDisplayCombo.Parent := FSettingsScroll;
   FDisplayCombo.Position.X := 28;
-  FDisplayCombo.Position.Y := 365;
+  FDisplayCombo.Position.Y := 388;
   FDisplayCombo.Width := 390;
-  FDisplayCombo.Height := 38;
+  FDisplayCombo.Height := 54;
+  FDisplayCombo.ItemHeight := 50;
   FDisplayCombo.DropDownCount := 8;
   FDisplayCombo.DisableMouseWheel := True;
   PopulateDisplayChoices;
   FDisplayCombo.OnClick := SettingsInteraction;
   FDisplayCombo.OnChange := SettingsInteraction;
-  FIdleEdit := NewEdit(365);
+  FIdleEdit := NewEdit(388);
   FIdleEdit.Position.X := 440;
   FIdleEdit.Width := 192;
   FIdleEdit.Text := IntToStr(FSettings.OtherDisplayIdleMinutes);
@@ -358,24 +360,26 @@ begin
   FMessageLabel := TLabel.Create(FSettingsScroll);
   FMessageLabel.Parent := FSettingsScroll;
   FMessageLabel.Position.X := 28;
-  FMessageLabel.Position.Y := 418;
+  FMessageLabel.Position.Y := 447;
   FMessageLabel.Width := 604;
-  FMessageLabel.Height := 65;
+  FMessageLabel.Height := 50;
   FMessageLabel.WordWrap := True;
   FMessageLabel.StyledSettings := [];
+  FMessageLabel.TextSettings.Font.Size := 13;
   FMessageLabel.TextSettings.FontColor := TextColor;
   FMessageLabel.Text := 'Wachhalten: Montag bis Freitag, 10:00–18:00 Uhr. ' +
     'Windows speichert den Key als AES-GCM → DPAPI (aktueller Nutzer) → Credential Manager.';
 
-  NewButton('Speichern', 28, 500, 138, SaveSettings);
-  NewButton('Abbrechen', 176, 500, 138, CancelSettings);
-  NewButton('Demo anzeigen', 324, 500, 148, ShowDemo);
-  NewButton('App beenden', 482, 500, 150, ExitApplication);
+  NewButton('Speichern', 28, 510, 190, SaveSettings);
+  NewButton('Abbrechen', 235, 510, 190, CancelSettings);
+  NewButton('App beenden', 442, 510, 190, ExitApplication);
 {$IF Defined(MSWINDOWS)}
-  NewButton('Gespeicherten API-Key löschen', 28, 552, 294, DeleteKey);
-  NewButton('Jetzt aktualisieren', 332, 552, 300, SaveSettings);
+  NewButton('Demo anzeigen', 28, 574, 190, ShowDemo);
+  NewButton('API-Key löschen', 235, 574, 190, DeleteKey);
+  NewButton('Jetzt aktualisieren', 442, 574, 190, SaveSettings);
 {$ELSE}
-  NewButton('Jetzt aktualisieren', 28, 552, 604, SaveSettings);
+  NewButton('Demo anzeigen', 28, 574, 292, ShowDemo);
+  NewButton('Jetzt aktualisieren', 340, 574, 292, SaveSettings);
 {$ENDIF}
 end;
 
