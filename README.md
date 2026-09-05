@@ -36,14 +36,18 @@ den hausinternen HTTP-Sammler Klartextverkehr.
 
 ## Windows einrichten
 
-Beim ersten Start öffnet sich die Einstellungskarte. Sie ist später über das
-Zahnrad oder `F2` erreichbar.
+Beim ersten Start öffnet sich die Einstellungskarte. Alle Beschriftungen sind für
+den dunklen Hintergrund fest auf helle Schrift gesetzt. Später öffnet ein Klick
+oder Fingertipp auf den Statusblock oben rechts (`Aktuell` / `Stand`) die Karte;
+`F2` bleibt als Tastaturkürzel erhalten. Über **App beenden** lässt sich die
+Anwendung auch auf einem Touch-Gerät vollständig schließen.
 
 1. Einen OpenAI **Organization Admin Key** eingeben.
 2. Falls das gewünschte Periodenlimit nicht über die API verfügbar ist, das Limit
    in USD manuell eintragen.
-3. Abrechnungstag (`1` bis `28`) und Dashboard-Monitor setzen. `-1` wählt bevorzugt
-   den ersten nicht primären Monitor.
+3. Abrechnungstag (`1` bis `28`) und den Dashboard-Monitor in der beschrifteten
+   Auswahlliste setzen. **Automatisch** wählt bevorzugt den ersten nicht primären
+   Monitor; Auflösung und Hauptbildschirm sind direkt in der Liste erkennbar.
 4. Für einen Android-Viewer einen ausreichend langen, zufälligen Viewer-Token
    setzen. Ohne Token lauscht der Snapshot-Server nur auf `127.0.0.1`; mit Token
    auf allen lokalen Adressen, standardmäßig TCP-Port `8787`.
@@ -83,6 +87,12 @@ die App-Steuerung ein; nach der eingestellten Inaktivitätszeit (Standard zehn
 Minuten) wird sie wieder schwarz. Bei reinem Display-Mirroring kann Android die
 beiden Bildschirme technisch nicht unterschiedlich darstellen.
 
+Die Bildschirmauswahl bietet auf Android **Automatisch**, den integrierten
+Tablet-Bildschirm und jedes aktuell angeschlossene Presentation-Display mit Name
+und Auflösung an. Bei mehreren externen Displays erhält nur das ausgewählte das
+Dashboard; alle übrigen bleiben schwarz. Ist ein ausdrücklich gewähltes externes
+Display nicht angeschlossen, fällt die Anzeige sicher auf das Tablet zurück.
+
 Die App kann auf Android nur ihre eigene Activity schwärzen beziehungsweise
 anzeigen; fremde Apps oder die Android-Systemoberfläche werden nicht global
 überlagert.
@@ -121,7 +131,8 @@ OtherDisplayIdleMinutes=10
 
 ## Verifikation
 
-- Win64-Anwendung kompiliert und eine 1920×1080-Vorschau wurde gerendert.
+- Win64-Anwendung kompiliert; Dashboard- und Einstellungsansicht wurden als
+  Vorschauen gerendert und visuell geprüft.
 - Alle gemeinsam genutzten Units einschließlich Android-Presentation-Code wurden
   mit dem Android64-Compiler übersetzt.
 - `tests/Dashboard.Tests.dpr` prüft Prognose (inklusive Ausschluss des heutigen

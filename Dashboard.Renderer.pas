@@ -32,6 +32,7 @@ type
     procedure DrawCodex(const ACanvas: TCanvas; const ARect: TRectF);
   public
     constructor Create(const ASnapshot: TUsageSnapshot);
+    function SettingsHitRect(const ARect: TRectF): TRectF;
     procedure Render(const ACanvas: TCanvas; const ARect: TRectF);
     procedure RenderCompanion(const ACanvas: TCanvas; const ARect: TRectF;
       const ARevealed: Boolean; const ASecondsRemaining: Integer);
@@ -141,6 +142,17 @@ begin
   FScale := 1;
 end;
 
+function TDashboardRenderer.SettingsHitRect(const ARect: TRectF): TRectF;
+var
+  Scale, Margin: Single;
+begin
+  Scale := Clamp(Min(ARect.Width / 1920, ARect.Height / 1080), 0.62, 1.35);
+  Margin := Clamp(ARect.Width * 0.019, 12, 36);
+  Result := TRectF.Create(ARect.Right - Margin - 440 * Scale,
+    ARect.Top + 7 * Scale, ARect.Right - Margin,
+    ARect.Top + 83 * Scale);
+end;
+
 procedure TDashboardRenderer.SetFont(const ACanvas: TCanvas; const ASize: Single;
   const ABold: Boolean);
 begin
@@ -182,8 +194,11 @@ procedure TDashboardRenderer.DrawHeader(const ACanvas: TCanvas;
   const ARect: TRectF);
 var
   Status, Stamp: string;
-  Dot: TRectF;
+  Dot, StatusPanel: TRectF;
 begin
+  StatusPanel := TRectF.Create(ARect.Right - 440 * FScale,
+    ARect.Top - 5 * FScale, ARect.Right, ARect.Top + 68 * FScale);
+  Box(ACanvas, StatusPanel, CPanel, CBorder, 10);
   Text(ACanvas, TRectF.Create(ARect.Left, ARect.Top, ARect.Right,
     ARect.Top + 22 * FScale), 'LIVE · API PLATFORM', 12, CGreen, True);
   Text(ACanvas, TRectF.Create(ARect.Left, ARect.Top + 18 * FScale,
@@ -192,8 +207,8 @@ begin
   Status := FSnapshot.StatusText;
   if Status = '' then
     Status := 'Warte auf Daten';
-  Dot := TRectF.Create(ARect.Right - 172 * FScale, ARect.Top + 5 * FScale,
-    ARect.Right - 162 * FScale, ARect.Top + 15 * FScale);
+  Dot := TRectF.Create(ARect.Right - 420 * FScale, ARect.Top + 5 * FScale,
+    ARect.Right - 410 * FScale, ARect.Top + 15 * FScale);
   ACanvas.Fill.Color := LimitColor(IfThen(SameText(Status, 'Aktuell'), 0, 80));
   ACanvas.FillEllipse(Dot, 1);
   Text(ACanvas, TRectF.Create(Dot.Right + 5 * FScale, ARect.Top,

@@ -15,6 +15,7 @@ uses
   FMX.Layouts,
   FMX.StdCtrls,
   FMX.Edit,
+  FMX.ListBox,
   Dashboard.Model,
   Dashboard.Settings,
   Dashboard.Renderer,
@@ -28,8 +29,8 @@ type
   private
     FPaintBox: TPaintBox;
     FTimer: TTimer;
-    FSettingsButton: TButton;
     FSettingsPanel: TRectangle;
+    FSettingsScroll: TScrollBox;
 {$IF Defined(MSWINDOWS)}
     FKeyEdit: TEdit;
 {$ENDIF}
@@ -37,7 +38,8 @@ type
     FViewerTokenEdit: TEdit;
     FLimitEdit: TEdit;
     FBillingDayEdit: TEdit;
-    FDisplayEdit: TEdit;
+    FDisplayCombo: TComboBox;
+    FDisplayValues: TArray<Integer>;
     FIdleEdit: TEdit;
     FMessageLabel: TLabel;
     FSnapshot: TUsageSnapshot;
@@ -58,7 +60,9 @@ type
     FWasExternal: Boolean;
     procedure BuildUi;
     procedure BuildSettingsPanel;
-    procedure AddSettingsLabel(const AText: string; const AX, AY, AWidth: Single);
+    function AddSettingsLabel(const AText: string; const AX, AY,
+      AWidth: Single): TLabel;
+    procedure PopulateDisplayChoices;
     procedure PaintDashboard(Sender: TObject; Canvas: TCanvas);
     procedure TimerTick(Sender: TObject);
     procedure FormShown(Sender: TObject);
@@ -74,6 +78,7 @@ type
     procedure SaveSettings(Sender: TObject);
     procedure CancelSettings(Sender: TObject);
     procedure ShowDemo(Sender: TObject);
+    procedure ExitApplication(Sender: TObject);
 {$IF Defined(MSWINDOWS)}
     procedure DeleteKey(Sender: TObject);
 {$ENDIF}
@@ -86,6 +91,7 @@ type
     procedure RevealCompanion;
 {$ENDIF}
     procedure RenderPreviewAndExit;
+    procedure RenderSettingsPreviewAndExit;
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
@@ -128,8 +134,8 @@ begin
   if FSettings.UseDemoWhenUnavailable then
     FSnapshot.MakeDemo;
   FRenderer := TDashboardRenderer.Create(FSnapshot);
-  BuildUi;
   FPlatform := TPlatformCoordinator.Create(Self);
+  BuildUi;
   FCodexClient := TCodexClient.Create;
   FPublisher := TSnapshotPublisher.Create(FSettings.ListenPort, FSettings.ViewerToken);
   StartPublisher;
@@ -188,17 +194,6 @@ begin
   FPaintBox.OnMouseDown := DashboardMouseDown;
   FPaintBox.OnMouseMove := DashboardMouseMove;
 
-  FSettingsButton := TButton.Create(Self);
-  FSettingsButton.Parent := Self;
-  FSettingsButton.Text := '⚙';
-  FSettingsButton.Width := 46;
-  FSettingsButton.Height := 38;
-  FSettingsButton.Position.X := Width - 62;
-  FSettingsButton.Position.Y := 9;
-  FSettingsButton.Anchors := [TAnchorKind.akTop, TAnchorKind.akRight];
-  FSettingsButton.Opacity := 0.68;
-  FSettingsButton.OnClick := ToggleSettings;
-
   BuildSettingsPanel;
 
   FTimer := TTimer.Create(Self);
@@ -207,33 +202,72 @@ begin
   FTimer.Enabled := True;
 end;
 
-procedure TMainForm.AddSettingsLabel(const AText: string; const AX, AY,
-  AWidth: Single);
-var
-  L: TLabel;
+function TMainForm.AddSettingsLabel(const AText: string; const AX, AY,
+  AWidth: Single): TLabel;
 begin
-  L := TLabel.Create(FSettingsPanel);
-  L.Parent := FSettingsPanel;
-  L.Text := AText;
-  L.TextSettings.Font.Size := 12;
-  L.TextSettings.FontColor := MutedColor;
-  L.Position.X := AX;
-  L.Position.Y := AY;
-  L.Width := AWidth;
-  L.Height := 22;
+  Result := TLabel.Create(FSettingsScroll);
+  Result.Parent := FSettingsScroll;
+  Result.Text := AText;
+  Result.StyledSettings := [];
+  Result.TextSettings.Font.Size := 12;
+  Result.TextSettings.FontColor := TextColor;
+  Result.Position.X := AX;
+  Result.Position.Y := AY;
+  Result.Width := AWidth;
+  Result.Height := 22;
+end;
+
+procedure TMainForm.PopulateDisplayChoices;
+var
+  I, SelectedIndex: Integer;
+  Captions: TArray<string>;
+  SavedOnChange: TNotifyEvent;
+begin
+  if (FDisplayCombo = nil) or (FPlatform = nil) then
+    Exit;
+  FPlatform.GetDisplayChoices(FDisplayValues, Captions);
+  SavedOnChange := FDisplayCombo.OnChange;
+  FDisplayCombo.OnChange := nil;
+  FDisplayCombo.Items.BeginUpdate;
+  try
+    FDisplayCombo.Items.Clear;
+    for I := 0 to High(Captions) do
+      FDisplayCombo.Items.Add(Captions[I]);
+    SelectedIndex := 0;
+    for I := 0 to High(FDisplayValues) do
+      if FDisplayValues[I] = FSettings.DashboardDisplay then
+      begin
+        SelectedIndex := I;
+        Break;
+      end;
+    if FDisplayCombo.Count > 0 then
+      FDisplayCombo.ItemIndex := EnsureRange(SelectedIndex, 0,
+        FDisplayCombo.Count - 1);
+    for I := 0 to FDisplayCombo.Count - 1 do
+    begin
+      FDisplayCombo.ListItems[I].StyledSettings := [];
+      FDisplayCombo.ListItems[I].TextSettings.Font.Size := 12;
+      FDisplayCombo.ListItems[I].TextSettings.FontColor := TAlphaColor($FF102018);
+    end;
+  finally
+    FDisplayCombo.Items.EndUpdate;
+    FDisplayCombo.OnChange := SavedOnChange;
+  end;
 end;
 
 procedure TMainForm.BuildSettingsPanel;
 
   function NewEdit(const AY: Single; const APassword: Boolean = False): TEdit;
   begin
-    Result := TEdit.Create(FSettingsPanel);
-    Result.Parent := FSettingsPanel;
+    Result := TEdit.Create(FSettingsScroll);
+    Result.Parent := FSettingsScroll;
     Result.Position.X := 28;
     Result.Position.Y := AY;
     Result.Width := 604;
     Result.Height := 38;
+    Result.StyledSettings := [];
     Result.TextSettings.Font.Size := 12;
+    Result.TextSettings.FontColor := TextColor;
     Result.Password := APassword;
     Result.OnClick := SettingsInteraction;
     Result.OnTyping := SettingsInteraction;
@@ -242,13 +276,13 @@ procedure TMainForm.BuildSettingsPanel;
   function NewButton(const AText: string; const AX, AY, AWidth: Single;
     const AClick: TNotifyEvent): TButton;
   begin
-    Result := TButton.Create(FSettingsPanel);
-    Result.Parent := FSettingsPanel;
+    Result := TButton.Create(FSettingsScroll);
+    Result.Parent := FSettingsScroll;
     Result.Text := AText;
     Result.Position.X := AX;
     Result.Position.Y := AY;
     Result.Width := AWidth;
-    Result.Height := 40;
+    Result.Height := 44;
     Result.OnClick := AClick;
   end;
 
@@ -265,8 +299,12 @@ begin
   FSettingsPanel.Stroke.Thickness := 2;
   FSettingsPanel.Visible := False;
 
-  AddSettingsLabel('Einstellungen', 28, 15, 604);
-  with TLabel(FSettingsPanel.Children[FSettingsPanel.ChildrenCount - 1]) do
+  FSettingsScroll := TScrollBox.Create(FSettingsPanel);
+  FSettingsScroll.Parent := FSettingsPanel;
+  FSettingsScroll.Align := TAlignLayout.Client;
+  FSettingsScroll.Margins.Rect := TRectF.Create(3, 3, 3, 3);
+
+  with AddSettingsLabel('Einstellungen', 28, 15, 604) do
   begin
     TextSettings.Font.Size := 22;
     TextSettings.Font.Style := [TFontStyle.fsBold];
@@ -299,34 +337,46 @@ begin
   FBillingDayEdit.Width := 192;
   FBillingDayEdit.Text := IntToStr(FSettings.BillingDay);
 
-  AddSettingsLabel('Dashboard-Monitor (-1 = erster externer)', 28, 342, 390);
-  AddSettingsLabel('Andere Displays nach Minuten schwarz', 440, 342, 192);
-  FDisplayEdit := NewEdit(365);
-  FDisplayEdit.Width := 390;
-  FDisplayEdit.Text := IntToStr(FSettings.DashboardDisplay);
+  AddSettingsLabel('Dashboard auf Bildschirm', 28, 342, 390);
+  AddSettingsLabel('Schwarz nach Minuten', 440, 342, 192);
+  FDisplayCombo := TComboBox.Create(FSettingsScroll);
+  FDisplayCombo.Parent := FSettingsScroll;
+  FDisplayCombo.Position.X := 28;
+  FDisplayCombo.Position.Y := 365;
+  FDisplayCombo.Width := 390;
+  FDisplayCombo.Height := 38;
+  FDisplayCombo.DropDownCount := 8;
+  FDisplayCombo.DisableMouseWheel := True;
+  PopulateDisplayChoices;
+  FDisplayCombo.OnClick := SettingsInteraction;
+  FDisplayCombo.OnChange := SettingsInteraction;
   FIdleEdit := NewEdit(365);
   FIdleEdit.Position.X := 440;
   FIdleEdit.Width := 192;
   FIdleEdit.Text := IntToStr(FSettings.OtherDisplayIdleMinutes);
 
-  FMessageLabel := TLabel.Create(FSettingsPanel);
-  FMessageLabel.Parent := FSettingsPanel;
+  FMessageLabel := TLabel.Create(FSettingsScroll);
+  FMessageLabel.Parent := FSettingsScroll;
   FMessageLabel.Position.X := 28;
   FMessageLabel.Position.Y := 418;
   FMessageLabel.Width := 604;
   FMessageLabel.Height := 65;
   FMessageLabel.WordWrap := True;
-  FMessageLabel.TextSettings.FontColor := MutedColor;
+  FMessageLabel.StyledSettings := [];
+  FMessageLabel.TextSettings.FontColor := TextColor;
   FMessageLabel.Text := 'Wachhalten: Montag bis Freitag, 10:00–18:00 Uhr. ' +
     'Windows speichert den Key als AES-GCM → DPAPI (aktueller Nutzer) → Credential Manager.';
 
-  NewButton('Speichern', 28, 500, 185, SaveSettings);
-  NewButton('Abbrechen', 224, 500, 185, CancelSettings);
-  NewButton('Demo anzeigen', 420, 500, 212, ShowDemo);
+  NewButton('Speichern', 28, 500, 138, SaveSettings);
+  NewButton('Abbrechen', 176, 500, 138, CancelSettings);
+  NewButton('Demo anzeigen', 324, 500, 148, ShowDemo);
+  NewButton('App beenden', 482, 500, 150, ExitApplication);
 {$IF Defined(MSWINDOWS)}
-  NewButton('Gespeicherten API-Key löschen', 28, 552, 288, DeleteKey);
+  NewButton('Gespeicherten API-Key löschen', 28, 552, 294, DeleteKey);
+  NewButton('Jetzt aktualisieren', 332, 552, 300, SaveSettings);
+{$ELSE}
+  NewButton('Jetzt aktualisieren', 28, 552, 604, SaveSettings);
 {$ENDIF}
-  NewButton('Jetzt aktualisieren', 327, 552, 305, SaveSettings);
 end;
 
 procedure TMainForm.PaintDashboard(Sender: TObject; Canvas: TCanvas);
@@ -349,6 +399,12 @@ end;
 
 procedure TMainForm.FormShown(Sender: TObject);
 begin
+  if ((ParamCount > 0) and SameText(ParamStr(1), '--render-settings-preview')) or
+     FindCmdLineSwitch('render-settings-preview', True) then
+  begin
+    RenderSettingsPreviewAndExit;
+    Exit;
+  end;
   if ((ParamCount > 0) and SameText(ParamStr(1), '--render-preview')) or
      FindCmdLineSwitch('render-preview', True) then
   begin
@@ -356,8 +412,8 @@ begin
     Exit;
   end;
   FPlatform.PlaceDashboard(FSettings.DashboardDisplay);
+  PopulateDisplayChoices;
   FSettingsPanel.BringToFront;
-  FSettingsButton.BringToFront;
   BeginRefresh;
 end;
 
@@ -376,6 +432,49 @@ begin
       if Bitmap.Canvas.BeginScene then
       try
         FRenderer.Render(Bitmap.Canvas, TRectF.Create(0, 0, 1920, 1080));
+      finally
+        Bitmap.Canvas.EndScene;
+      end;
+      Bitmap.SaveToFile(FileName);
+    finally
+      Bitmap.Free;
+    end;
+  except
+    on E: Exception do
+      TFile.WriteAllText(ChangeFileExt(FileName, '.error.txt'),
+        E.ClassName + ': ' + E.Message, TEncoding.UTF8);
+  end;
+  Application.Terminate;
+end;
+
+procedure TMainForm.RenderSettingsPreviewAndExit;
+var
+  Bitmap: TBitmap;
+  FileName: string;
+begin
+  FileName := IncludeTrailingPathDelimiter(ExtractFilePath(ParamStr(0))) +
+    'settings-preview.png';
+  if ParamCount >= 2 then
+    FileName := ExpandFileName(ParamStr(2));
+  try
+    FSettingsPanel.Width := 660;
+    FSettingsPanel.Height := 650;
+    FSettingsPanel.Visible := True;
+    FDisplayCombo.ApplyStyleLookup;
+    FCollectorEdit.Text := 'http://192.168.1.20:8787/snapshot';
+    FViewerTokenEdit.Text := '';
+    FLimitEdit.Text := '30,00';
+    FBillingDayEdit.Text := '1';
+    if FDisplayCombo.Items.Count > 1 then
+      FDisplayCombo.ItemIndex := 1;
+    FIdleEdit.Text := '10';
+    Bitmap := TBitmap.Create(720, 690);
+    try
+      if Bitmap.Canvas.BeginScene then
+      try
+        Bitmap.Canvas.Clear(BackgroundColor);
+        FSettingsPanel.PaintTo(Bitmap.Canvas,
+          TRectF.Create(30, 20, 690, 670));
       finally
         Bitmap.Canvas.EndScene;
       end;
@@ -424,15 +523,26 @@ begin
   RegisterInteraction;
 {$IF Defined(ANDROID)}
   if FPlatform.ExternalDisplayActive then
+  begin
     if WasRevealed then
       ToggleSettings(Sender);
+    Exit;
+  end;
 {$ENDIF}
+  if FRenderer.SettingsHitRect(FPaintBox.LocalRect).Contains(TPointF.Create(X, Y)) then
+    ToggleSettings(Sender);
 end;
 
 procedure TMainForm.DashboardMouseMove(Sender: TObject; Shift: TShiftState;
   X, Y: Single);
 begin
   RegisterInteraction;
+{$IF Defined(MSWINDOWS)}
+  if FRenderer.SettingsHitRect(FPaintBox.LocalRect).Contains(TPointF.Create(X, Y)) then
+    FPaintBox.Cursor := crHandPoint
+  else
+    FPaintBox.Cursor := crDefault;
+{$ENDIF}
 end;
 
 procedure TMainForm.SettingsInteraction(Sender: TObject);
@@ -442,6 +552,8 @@ end;
 
 procedure TMainForm.RegisterInteraction;
 begin
+  if FPlatform = nil then
+    Exit;
   FPlatform.NotifyInteraction(FSettings.OtherDisplayIdleMinutes);
 {$IF Defined(ANDROID)}
   if FPlatform.ExternalDisplayActive then
@@ -459,11 +571,10 @@ begin
     FViewerTokenEdit.Text := FSettings.ViewerToken;
     FLimitEdit.Text := FloatToStr(FSettings.SpendingLimit);
     FBillingDayEdit.Text := IntToStr(FSettings.BillingDay);
-    FDisplayEdit.Text := IntToStr(FSettings.DashboardDisplay);
+    PopulateDisplayChoices;
     FIdleEdit.Text := IntToStr(FSettings.OtherDisplayIdleMinutes);
     FSettingsPanel.BringToFront;
   end;
-  FSettingsButton.BringToFront;
 end;
 
 procedure TMainForm.SaveSettings(Sender: TObject);
@@ -475,7 +586,7 @@ var
 {$ENDIF}
 begin
   RegisterInteraction;
-  FMessageLabel.TextSettings.FontColor := MutedColor;
+  FMessageLabel.TextSettings.FontColor := TextColor;
 {$IF Defined(MSWINDOWS)}
   if (FKeyEdit <> nil) and (Trim(FKeyEdit.Text) <> '') then
   begin
@@ -494,8 +605,11 @@ begin
     FSettings.SpendingLimit := Max(0, FloatValue);
   if TryStrToInt(FBillingDayEdit.Text, IntValue) then
     FSettings.BillingDay := EnsureRange(IntValue, 1, 28);
-  if TryStrToInt(FDisplayEdit.Text, IntValue) then
-    FSettings.DashboardDisplay := IntValue;
+  if (FDisplayCombo.ItemIndex >= 0) and
+     (FDisplayCombo.ItemIndex < Length(FDisplayValues)) then
+    FSettings.DashboardDisplay := FDisplayValues[FDisplayCombo.ItemIndex]
+  else
+    FSettings.DashboardDisplay := -1;
   if TryStrToInt(FIdleEdit.Text, IntValue) then
     FSettings.OtherDisplayIdleMinutes := EnsureRange(IntValue, 1, 120);
   FSettings.Save;
@@ -524,6 +638,12 @@ begin
   FSettingsPanel.Visible := False;
   FPaintBox.Repaint;
   UpdateExternalDisplay(True);
+end;
+
+procedure TMainForm.ExitApplication(Sender: TObject);
+begin
+  RegisterInteraction;
+  Application.Terminate;
 end;
 
 {$IF Defined(MSWINDOWS)}
@@ -724,8 +844,6 @@ begin
     FCompanionRevealUntil := 0;
     FPaintBox.Repaint;
   end;
-  FSettingsButton.Visible := (not ExternalNow) or
-    (FCompanionRevealUntil > Now) or FSettingsPanel.Visible;
   if ExternalNow then
   begin
     UpdateExternalDisplay(False);

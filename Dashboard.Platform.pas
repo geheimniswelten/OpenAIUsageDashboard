@@ -65,6 +65,7 @@ type
     FPresentations: TArray<JDashboardPresentation>;
     FImages: TArray<JImageView>;
     FDisplayIds: TArray<Integer>;
+    FExternalImageIndex: Integer;
     FExternalBitmap: JBitmap;
     FPreviousExternalBitmap: JBitmap;
     procedure ClearAndroidDisplays;
@@ -77,6 +78,8 @@ type
     constructor Create(const AMainForm: TCommonCustomForm);
     destructor Destroy; override;
     procedure PlaceDashboard(const ARequestedDisplay: Integer);
+    procedure GetDisplayChoices(out AValues: TArray<Integer>;
+      out ACaptions: TArray<string>);
     procedure Tick(const AStartHour, AEndHour, AIdleMinutes: Integer);
     procedure NotifyInteraction(const AIdleMinutes: Integer);
     function ExternalDisplayActive: Boolean;
@@ -127,7 +130,7 @@ var
 begin
   inherited Create;
   FMainForm := AMainForm;
-  FTargetDisplay := 0;
+  FTargetDisplay := -1;
   FExternalSize := TSize.Create(0, 0);
 {$IF Defined(MSWINDOWS)}
   FBlackForms := TObjectList<TForm>.Create(True);
@@ -138,6 +141,7 @@ begin
     FLastInputTick := Input.dwTime;
 {$ENDIF}
 {$IF Defined(ANDROID)}
+  FExternalImageIndex := -1;
   Service := TAndroidHelper.Activity.getSystemService(TJContext.JavaClass.DISPLAY_SERVICE);
   if Service <> nil then
     FDisplayManager := TJDisplayManager.Wrap(Service);
@@ -230,12 +234,85 @@ begin
   FMainForm.SetBoundsF(Display.Bounds);
   RebuildWindowsDisplays;
 {$ELSE}
-  FTargetDisplay := 0;
+  FTargetDisplay := ARequestedDisplay;
   FMainForm.BorderStyle := TFmxFormBorderStyle.None;
   FMainForm.FullScreen := True;
 {$IF Defined(ANDROID)}
   RebuildAndroidDisplays;
 {$ENDIF}
+{$ENDIF}
+end;
+
+procedure TPlatformCoordinator.GetDisplayChoices(out AValues: TArray<Integer>;
+  out ACaptions: TArray<string>);
+{$IF Defined(MSWINDOWS)}
+var
+  I: Integer;
+  Bounds: TRect;
+  Description: string;
+{$ENDIF}
+{$IF Defined(ANDROID)}
+var
+  Displays: TJavaObjectArray<JDisplay>;
+  I: Integer;
+  Point: JPoint;
+  DisplayName: string;
+{$ENDIF}
+begin
+{$IF Defined(MSWINDOWS)}
+  SetLength(AValues, Screen.DisplayCount + 1);
+  SetLength(ACaptions, Screen.DisplayCount + 1);
+  AValues[0] := -1;
+  ACaptions[0] := 'Automatisch · erster externer Bildschirm';
+  for I := 0 to Screen.DisplayCount - 1 do
+  begin
+    Bounds := Screen.Displays[I].PhysicalBounds;
+    Description := Format('Bildschirm %d · %d×%d', [I + 1,
+      Bounds.Width, Bounds.Height]);
+    if Screen.Displays[I].Primary then
+      Description := Description + ' · Hauptbildschirm';
+    AValues[I + 1] := I;
+    ACaptions[I + 1] := Description;
+  end;
+{$ELSEIF Defined(ANDROID)}
+  Displays := nil;
+  try
+    if FDisplayManager <> nil then
+      Displays := FDisplayManager.getDisplays(
+        TJDisplayManager.JavaClass.DISPLAY_CATEGORY_PRESENTATION);
+  except
+    Displays := nil;
+  end;
+  if Displays = nil then
+  begin
+    SetLength(AValues, 2);
+    SetLength(ACaptions, 2);
+  end
+  else
+  begin
+    SetLength(AValues, Displays.Length + 2);
+    SetLength(ACaptions, Displays.Length + 2);
+  end;
+  AValues[0] := -1;
+  ACaptions[0] := 'Automatisch · erster externer Bildschirm';
+  AValues[1] := -2;
+  ACaptions[1] := 'Tablet · integrierter Bildschirm';
+  if Displays <> nil then
+    for I := 0 to Displays.Length - 1 do
+    begin
+      Point := TJPoint.Create;
+      Displays.Items[I].getRealSize(Point);
+      DisplayName := JStringToString(Displays.Items[I].getName);
+      if DisplayName = '' then
+        DisplayName := 'Externer Bildschirm ' + IntToStr(I + 1);
+      AValues[I + 2] := Displays.Items[I].getDisplayId;
+      ACaptions[I + 2] := Format('%s · %d×%d', [DisplayName, Point.x, Point.y]);
+    end;
+{$ELSE}
+  SetLength(AValues, 1);
+  SetLength(ACaptions, 1);
+  AValues[0] := -1;
+  ACaptions[0] := 'Automatisch';
 {$ENDIF}
 end;
 
@@ -281,16 +358,11 @@ begin
 end;
 
 function TPlatformCoordinator.ExternalDisplayActive: Boolean;
-{$IF Defined(ANDROID)}
-var
-  I: Integer;
-{$ENDIF}
 begin
 {$IF Defined(ANDROID)}
-  Result := False;
-  for I := 0 to High(FPresentations) do
-    if FPresentations[I] <> nil then
-      Exit(True);
+  Result := (FExternalImageIndex >= 0) and
+    (FExternalImageIndex < Length(FPresentations)) and
+    (FPresentations[FExternalImageIndex] <> nil);
 {$ELSE}
   Result := False;
 {$ENDIF}
@@ -305,11 +377,14 @@ procedure TPlatformCoordinator.UpdateExternalBitmap(
   const ABitmap: FMX.Graphics.TBitmap);
 {$IF Defined(ANDROID)}
 var
+  ImageIndex: Integer;
   NewBitmap, OldBitmap, StaleBitmap: JBitmap;
 {$ENDIF}
 begin
 {$IF Defined(ANDROID)}
-  if (Length(FImages) = 0) or (FImages[0] = nil) or (ABitmap = nil) or
+  ImageIndex := FExternalImageIndex;
+  if (ImageIndex < 0) or (ImageIndex >= Length(FImages)) or
+     (FImages[ImageIndex] = nil) or (ABitmap = nil) or
      ABitmap.IsEmpty then
     Exit;
   NewBitmap := nil;
@@ -322,7 +397,7 @@ begin
       NewBitmap := nil;
       Exit;
     end;
-    FImages[0].setImageBitmap(NewBitmap);
+    FImages[ImageIndex].setImageBitmap(NewBitmap);
     StaleBitmap := FPreviousExternalBitmap;
     OldBitmap := FExternalBitmap;
     FPreviousExternalBitmap := OldBitmap;
@@ -424,6 +499,7 @@ begin
   FPresentations := nil;
   FImages := nil;
   FDisplayIds := nil;
+  FExternalImageIndex := -1;
   FExternalSize := TSize.Create(0, 0);
 end;
 
@@ -457,7 +533,7 @@ const
     $00000200 { layout hide navigation } or $00000100 { layout stable };
 var
   Displays: TJavaObjectArray<JDisplay>;
-  I, W, H: Integer;
+  I, W, H, TargetIndex: Integer;
   Point: JPoint;
   View: JImageView;
   Presentation: JDashboardPresentation;
@@ -474,6 +550,17 @@ begin
   if (Displays = nil) or (Displays.Length = 0) then
     Exit;
   try
+    TargetIndex := -1;
+    if FTargetDisplay <> -2 then
+      if FTargetDisplay < 0 then
+        TargetIndex := 0
+      else
+        for I := 0 to Displays.Length - 1 do
+          if Displays.Items[I].getDisplayId = FTargetDisplay then
+          begin
+            TargetIndex := I;
+            Break;
+          end;
     SetLength(FPresentations, Displays.Length);
     SetLength(FImages, Displays.Length);
     SetLength(FDisplayIds, Displays.Length);
@@ -494,7 +581,7 @@ begin
       Presentation.show;
       FPresentations[I] := Presentation;
       FImages[I] := View;
-      if I = 0 then
+      if I = TargetIndex then
       begin
         Point := TJPoint.Create;
         Displays.Items[I].getRealSize(Point);
@@ -513,6 +600,7 @@ begin
         FExternalSize := TSize.Create(W, H);
       end;
     end;
+    FExternalImageIndex := TargetIndex;
     SetAndroidKeepAwake(FKeepAwake);
   except
     ClearAndroidDisplays;
