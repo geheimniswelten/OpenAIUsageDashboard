@@ -115,6 +115,10 @@ Die Modellrangliste heißt bewusst `Top API-Modelle`, da die API Platform eine
 Gruppierung nach Modell liefert, die Codex-Kontonutzung jedoch keine Modellnamen
 enthält.
 
+Im Android-Settingsdialog werden Texte in Eingabefeldern, der Bildschirm-
+ComboBox einschließlich ihrer Listeneinträge und allen Schaltflächen unabhängig
+vom aktiven Android-/FMX-Style weiß dargestellt.
+
 ## Android mit Windows-Sammler
 
 Android enthält absichtlich **keinen OpenAI-Admin-Key**. In der Android-App werden
