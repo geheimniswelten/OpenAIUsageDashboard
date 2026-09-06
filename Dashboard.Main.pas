@@ -1245,14 +1245,65 @@ end;
 
 procedure TMainForm.ApplyRefresh(const ANewSnapshot: TUsageSnapshot;
   const ASuccess: Boolean; const AError: string);
+var
+  PreviousCostToday: Double;
+  PreviousCodexTodayTokens, PreviousCodexSevenDayTokens,
+    PreviousCodexMonthTokens: Int64;
+  PreserveCostToday, PreserveCodexDailyUsage: Boolean;
+  PreviousUtcDay, NewUtcDay: TDateTime;
+  DailyCost: TDailyCost;
+  I, TodayCostIndex: Integer;
 begin
   FFetching := False;
   if ASuccess then
   begin
+    PreserveCostToday := False;
+    PreserveCodexDailyUsage := False;
+    if (FSnapshot.LastUpdated > 0) and (ANewSnapshot.LastUpdated > 0) then
+    begin
+      PreviousUtcDay := DateOf(TTimeZone.Local.ToUniversalTime(FSnapshot.LastUpdated));
+      NewUtcDay := DateOf(TTimeZone.Local.ToUniversalTime(ANewSnapshot.LastUpdated));
+      PreserveCostToday := FSnapshot.CostTodayAvailable and
+        not ANewSnapshot.CostTodayAvailable and SameDate(PreviousUtcDay, NewUtcDay);
+      PreserveCodexDailyUsage := FSnapshot.CodexDailyUsageAvailable and
+        not ANewSnapshot.CodexDailyUsageAvailable and
+        SameDate(FSnapshot.LastUpdated, ANewSnapshot.LastUpdated);
+    end;
+    PreviousCostToday := FSnapshot.CostToday;
+    PreviousCodexTodayTokens := FSnapshot.CodexTodayTokens;
+    PreviousCodexSevenDayTokens := FSnapshot.CodexSevenDayTokens;
+    PreviousCodexMonthTokens := FSnapshot.CodexMonthTokens;
+    if PreserveCostToday then
+    begin
+      TodayCostIndex := -1;
+      for I := 0 to High(ANewSnapshot.DailyCosts) do
+        if SameDate(ANewSnapshot.DailyCosts[I].Day, NewUtcDay) then
+        begin
+          TodayCostIndex := I;
+          Break;
+        end;
+      if TodayCostIndex < 0 then
+      begin
+        TodayCostIndex := Length(ANewSnapshot.DailyCosts);
+        SetLength(ANewSnapshot.DailyCosts, TodayCostIndex + 1);
+      end;
+      DailyCost.Day := NewUtcDay;
+      DailyCost.Amount := PreviousCostToday;
+      DailyCost.HasCostData := True;
+      ANewSnapshot.DailyCosts[TodayCostIndex] := DailyCost;
+    end;
     FSnapshot.Assign(ANewSnapshot);
     if (FSnapshot.SpendingLimit <= 0) and (FSettings.SpendingLimit > 0) then
       FSnapshot.SpendingLimit := FSettings.SpendingLimit;
     FSnapshot.Recalculate;
+    if PreserveCodexDailyUsage then
+    begin
+      FSnapshot.CodexTodayTokens := PreviousCodexTodayTokens;
+      FSnapshot.CodexSevenDayTokens := PreviousCodexSevenDayTokens;
+      FSnapshot.CodexMonthTokens := PreviousCodexMonthTokens;
+      FSnapshot.CodexDailyUsageAvailable := True;
+      FSnapshot.CodexUsageAvailable := True;
+    end;
     FPublisher.Publish(FSnapshot);
   end
   else

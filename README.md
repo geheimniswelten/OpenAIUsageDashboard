@@ -102,6 +102,10 @@ API-Kosten, Tagesbuckets und Abrechnungsgrenzen werden konsistent in UTC
 ausgewertet. Liefert die API für heute noch keinen Kostenbetrag, steht dort
 `–` mit entsprechendem Hinweis. Kosten können später als Anfragen eintreffen.
 Codex-Tokenstatistiken verwenden weiterhin den lokalen Kalendertag.
+Hat das Dashboard am selben Tag bereits einen Kosten- oder Codex-Tageswert
+empfangen, bleibt dieser bei einer vorübergehend unvollständigen Folgeantwort
+sichtbar. Beim UTC-Tageswechsel der Kosten beziehungsweise lokalen Tageswechsel
+der Codex-Nutzung werden keine alten Tageswerte übernommen.
 
 ## Android mit Windows-Sammler
 
