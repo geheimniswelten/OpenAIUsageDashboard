@@ -1,7 +1,10 @@
-bin/
-dcu/
+_bin/
+_dcu/
 tests/bin/
 tests/dcu/
+*.dsv
+*.dsk
+*.~dsk
 *.apk
 *.aab
 *.dproj.local
