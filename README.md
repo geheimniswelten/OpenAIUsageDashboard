@@ -6,6 +6,8 @@ Browser werden zur Laufzeit nicht benötigt.
 
 ## Funktionsumfang
 
+![Screenshot|50%](Screenshot-Live.png)
+
 - OpenAI-Organisationskosten der letzten 30 Tage sowie Kosten/Anfragen/Tokens heute
   und in den letzten sieben Tagen
 - bis zu fünf Top-Modelle in einem kompakten 2×3-Kartenraster sowie weitere
