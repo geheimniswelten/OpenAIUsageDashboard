@@ -532,7 +532,7 @@ begin
   Box(ACanvas, ARect, CPanel, CBorder);
   Text(ACanvas, TRectF.Create(ARect.Left + 15 * FScale, ARect.Top + 7 * FScale,
     ARect.Right - 12 * FScale, ARect.Top + 36 * FScale),
-    'Top-Modelle · letzte 7 Tage', 15, CText, True);
+    'Top API-Modelle · letzte 7 Tage', 15, CText, True);
   Count := Min(5, Length(FSnapshot.Models));
   Gap := 7 * FScale;
   CellW := (ARect.Width - 30 * FScale - 2 * Gap) / 3;
@@ -743,6 +743,7 @@ procedure TDashboardRenderer.DrawCodex(const ACanvas: TCanvas;
   const ARect: TRectF);
 var
   Gap, W: Single;
+  TodayDetail: string;
 
   function TokenValue(const AValue: Int64; const AAvailable: Boolean): string;
   begin
@@ -769,6 +770,10 @@ var
   end;
 
 begin
+  if FSnapshot.CodexTodayUsageAvailable then
+    TodayDetail := 'lokaler Kalendertag'
+  else
+    TodayDetail := 'Heute noch nicht gemeldet';
   Box(ACanvas, ARect, CBluePanel, CBlueBorder);
   Text(ACanvas, TRectF.Create(ARect.Left + 15 * FScale, ARect.Top + 5 * FScale,
     ARect.Right - 12 * FScale, ARect.Top + 34 * FScale),
@@ -783,8 +788,7 @@ begin
   DrawKpi(ACanvas, TRectF.Create(ARect.Left + 15 * FScale + (W + Gap),
     ARect.Top + 38 * FScale, ARect.Left + 15 * FScale + (W + Gap) + W,
     ARect.Bottom - 10 * FScale), 'Tokens heute', TokenValue(FSnapshot.CodexTodayTokens,
-      FSnapshot.CodexDailyUsageAvailable), UsageDetail('lokaler Kalendertag',
-      FSnapshot.CodexDailyUsageAvailable));
+      FSnapshot.CodexTodayUsageAvailable), TodayDetail);
   DrawKpi(ACanvas, TRectF.Create(ARect.Left + 15 * FScale + 2 * (W + Gap),
     ARect.Top + 38 * FScale, ARect.Left + 15 * FScale + 2 * (W + Gap) + W,
     ARect.Bottom - 10 * FScale), 'Tokens · 7 Tage',

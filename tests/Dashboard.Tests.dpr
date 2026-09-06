@@ -70,13 +70,16 @@ begin
     Check(CopySnapshot.CostToday > 9000, 'JSON-Tageswert wurde nicht übertragen.');
     Check(CopySnapshot.OrganizationId = Source.OrganizationId,
       'JSON-Organisations-ID stimmt nicht.');
-    Check(CopySnapshot.CodexLifetimeAvailable and CopySnapshot.CodexDailyUsageAvailable,
+    Check(CopySnapshot.CodexLifetimeAvailable and CopySnapshot.CodexDailyUsageAvailable and CopySnapshot.CodexTodayUsageAvailable,
       'Codex-Verfügbarkeit wurde nicht übertragen.');
     Source.CodexLifetimeAvailable := False;
+    Source.CodexTodayUsageAvailable := False;
     Source.CodexError := 'Tokenstatistik nicht verfügbar';
     CopySnapshot.FromJson(Source.ToJson);
     Check(not CopySnapshot.CodexLifetimeAvailable and CopySnapshot.CodexDailyUsageAvailable,
       'Getrennte Codex-Verfügbarkeit wurde nicht erhalten.');
+    Check(not CopySnapshot.CodexTodayUsageAvailable,
+      'Verfügbarkeit des heutigen Codex-Buckets wurde nicht erhalten.');
     Check(CopySnapshot.CodexError = Source.CodexError,
       'Codex-Diagnose wurde nicht übertragen.');
 

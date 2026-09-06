@@ -889,11 +889,12 @@ var
   I: Integer;
   BucketDay, TodayValue, SevenDayStart, MonthStart: TDateTime;
   Tokens, TodayTokens, SevenDayTokens, MonthTokens: Int64;
-  LifetimeAvailable, DailyAvailable: Boolean;
+  LifetimeAvailable, DailyAvailable, TodayAvailable: Boolean;
 begin
   ASnapshot.CodexUsageAvailable := False;
   ASnapshot.CodexLifetimeAvailable := False;
   ASnapshot.CodexDailyUsageAvailable := False;
+  ASnapshot.CodexTodayUsageAvailable := False;
   Parsed := TJSONObject.ParseJSONValue(AJson);
   try
     if not (Parsed is TJSONObject) then
@@ -911,6 +912,7 @@ begin
     TodayTokens := 0;
     SevenDayTokens := 0;
     MonthTokens := 0;
+    TodayAvailable := False;
 
     BucketsValue := Root.GetValue('dailyUsageBuckets');
     DailyAvailable := BucketsValue is TJSONArray;
@@ -927,7 +929,10 @@ begin
           raise EConvertError.Create('Unvollständiger Codex-Tageswert');
         Tokens := Max(Int64(0), JsonInt64(Bucket, 'tokens'));
         if SameDate(BucketDay, TodayValue) then
+        begin
           TodayTokens := TodayTokens + Tokens;
+          TodayAvailable := True;
+        end;
         if (BucketDay >= SevenDayStart) and (BucketDay <= TodayValue) then
           SevenDayTokens := SevenDayTokens + Tokens;
         if (BucketDay >= MonthStart) and (BucketDay <= TodayValue) then
@@ -939,6 +944,7 @@ begin
     ASnapshot.CodexMonthTokens := MonthTokens;
     ASnapshot.CodexLifetimeAvailable := LifetimeAvailable;
     ASnapshot.CodexDailyUsageAvailable := DailyAvailable;
+    ASnapshot.CodexTodayUsageAvailable := TodayAvailable;
     ASnapshot.CodexUsageAvailable := ASnapshot.CodexLifetimeAvailable or
       ASnapshot.CodexDailyUsageAvailable;
     if not ASnapshot.CodexUsageAvailable then
@@ -972,6 +978,7 @@ begin
     ASnapshot.CodexUsageAvailable := False;
     ASnapshot.CodexLifetimeAvailable := False;
     ASnapshot.CodexDailyUsageAvailable := False;
+    ASnapshot.CodexTodayUsageAvailable := False;
     ASnapshot.CodexRateLimitsAvailable := False;
     ASnapshot.CodexError := '';
     MergeCodexLimits(ASnapshot, nil);

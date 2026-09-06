@@ -1,4 +1,4 @@
-# OpenAI Usage Dashboard (Delphi FMX)
+﻿# OpenAI Usage Dashboard (Delphi FMX)
 
 Native FireMonkey-Anwendung für **Win64 und Android64**. Das Ziel wird im selben
 RAD-Studio-Projekt über den Plattform-Selektor umgeschaltet; PowerShell und ein
@@ -106,6 +106,14 @@ Hat das Dashboard am selben Tag bereits einen Kosten- oder Codex-Tageswert
 empfangen, bleibt dieser bei einer vorübergehend unvollständigen Folgeantwort
 sichtbar. Beim UTC-Tageswechsel der Kosten beziehungsweise lokalen Tageswechsel
 der Codex-Nutzung werden keine alten Tageswerte übernommen.
+Eine vorhandene Codex-Bucket-Liste ohne Eintrag für den aktuellen Tag gilt nicht
+mehr als gemeldeter Nullwert. Nur ein ausdrücklich gelieferter heutiger Bucket
+mit null Tokens wird als `0` angezeigt; andernfalls erscheint `–` mit dem Hinweis,
+dass der heutige Wert noch nicht gemeldet wurde.
+
+Die Modellrangliste heißt bewusst `Top API-Modelle`, da die API Platform eine
+Gruppierung nach Modell liefert, die Codex-Kontonutzung jedoch keine Modellnamen
+enthält.
 
 ## Android mit Windows-Sammler
 
@@ -239,3 +247,10 @@ OtherDisplayIdleMinutes=10
 
 Eine Android-APK wird anschließend von RAD Studio mit der lokal konfigurierten
 SDK-/NDK-Toolchain und Signierung erzeugt.
+
+## Doppelklick auf das Dashboard (Windows)
+
+Ein linker Doppelklick auf die Dashboard-Fläche aktiviert den vorhandenen
+Sammler-/Tray-Modus. Das Fenster wird ausgeblendet, die Abfragen laufen weiter.
+Über das Tray-Menü lässt sich das Dashboard wieder anzeigen. Das Einstellungssymbol
+und das geöffnete Einstellungsfenster sind von dieser Aktion ausgenommen.

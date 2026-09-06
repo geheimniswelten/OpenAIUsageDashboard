@@ -76,6 +76,7 @@ type
     CodexUsageAvailable: Boolean;
     CodexLifetimeAvailable: Boolean;
     CodexDailyUsageAvailable: Boolean;
+    CodexTodayUsageAvailable: Boolean;
     CodexRateLimitsAvailable: Boolean;
     CodexError: string;
     constructor Create;
@@ -235,6 +236,7 @@ begin
   CodexUsageAvailable := False;
   CodexLifetimeAvailable := False;
   CodexDailyUsageAvailable := False;
+  CodexTodayUsageAvailable := False;
   CodexRateLimitsAvailable := False;
   CodexError := '';
 end;
@@ -273,6 +275,7 @@ begin
   CodexUsageAvailable := ASource.CodexUsageAvailable;
   CodexLifetimeAvailable := ASource.CodexLifetimeAvailable;
   CodexDailyUsageAvailable := ASource.CodexDailyUsageAvailable;
+  CodexTodayUsageAvailable := ASource.CodexTodayUsageAvailable;
   CodexRateLimitsAvailable := ASource.CodexRateLimitsAvailable;
   CodexError := ASource.CodexError;
 end;
@@ -442,6 +445,7 @@ begin
   CodexUsageAvailable := True;
   CodexLifetimeAvailable := True;
   CodexDailyUsageAvailable := True;
+  CodexTodayUsageAvailable := True;
   CodexRateLimitsAvailable := True;
   StatusText := 'Demo-Daten';
   SourceText := 'Integrierte Vorschau';
@@ -481,6 +485,7 @@ begin
     Root.AddPair('codexUsageAvailable', TJSONBool.Create(CodexUsageAvailable));
     Root.AddPair('codexLifetimeAvailable', TJSONBool.Create(CodexLifetimeAvailable));
     Root.AddPair('codexDailyUsageAvailable', TJSONBool.Create(CodexDailyUsageAvailable));
+    Root.AddPair('codexTodayUsageAvailable', TJSONBool.Create(CodexTodayUsageAvailable));
     Root.AddPair('codexRateLimitsAvailable', TJSONBool.Create(CodexRateLimitsAvailable));
     Root.AddPair('codexError', CodexError);
 
@@ -584,6 +589,7 @@ begin
     CodexUsageAvailable := JsonBool(Root, 'codexUsageAvailable', CodexLifetimeTokens > 0);
     CodexLifetimeAvailable := JsonBool(Root, 'codexLifetimeAvailable', CodexUsageAvailable);
     CodexDailyUsageAvailable := JsonBool(Root, 'codexDailyUsageAvailable', CodexUsageAvailable);
+    CodexTodayUsageAvailable := JsonBool(Root, 'codexTodayUsageAvailable', CodexDailyUsageAvailable);
     CodexRateLimitsAvailable := JsonBool(Root, 'codexRateLimitsAvailable');
     CodexError := JsonString(Root, 'codexError', '');
 

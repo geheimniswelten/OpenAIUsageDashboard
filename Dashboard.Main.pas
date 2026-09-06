@@ -888,6 +888,15 @@ begin
     Exit;
   end;
 {$ENDIF}
+{$IF Defined(MSWINDOWS)}
+  if (Button = TMouseButton.mbLeft) and (ssDouble in Shift) and
+    not FSettingsPanel.Visible and
+    not FRenderer.SettingsHitRect(FPaintBox.LocalRect).Contains(TPointF.Create(X, Y)) then
+  begin
+    EnterCollectorMode(Sender);
+    Exit;
+  end;
+{$ENDIF}
   if FRenderer.SettingsHitRect(FPaintBox.LocalRect).Contains(TPointF.Create(X, Y)) then
     ToggleSettings(Sender);
 end;
@@ -1249,7 +1258,7 @@ var
   PreviousCostToday: Double;
   PreviousCodexTodayTokens, PreviousCodexSevenDayTokens,
     PreviousCodexMonthTokens: Int64;
-  PreserveCostToday, PreserveCodexDailyUsage: Boolean;
+  PreserveCostToday, PreserveCodexToday, PreserveCodexDailyUsage: Boolean;
   PreviousUtcDay, NewUtcDay: TDateTime;
   DailyCost: TDailyCost;
   I, TodayCostIndex: Integer;
@@ -1258,6 +1267,7 @@ begin
   if ASuccess then
   begin
     PreserveCostToday := False;
+    PreserveCodexToday := False;
     PreserveCodexDailyUsage := False;
     if (FSnapshot.LastUpdated > 0) and (ANewSnapshot.LastUpdated > 0) then
     begin
@@ -1265,6 +1275,9 @@ begin
       NewUtcDay := DateOf(TTimeZone.Local.ToUniversalTime(ANewSnapshot.LastUpdated));
       PreserveCostToday := FSnapshot.CostTodayAvailable and
         not ANewSnapshot.CostTodayAvailable and SameDate(PreviousUtcDay, NewUtcDay);
+      PreserveCodexToday := FSnapshot.CodexTodayUsageAvailable and
+        not ANewSnapshot.CodexTodayUsageAvailable and
+        SameDate(FSnapshot.LastUpdated, ANewSnapshot.LastUpdated);
       PreserveCodexDailyUsage := FSnapshot.CodexDailyUsageAvailable and
         not ANewSnapshot.CodexDailyUsageAvailable and
         SameDate(FSnapshot.LastUpdated, ANewSnapshot.LastUpdated);
@@ -1298,10 +1311,15 @@ begin
     FSnapshot.Recalculate;
     if PreserveCodexDailyUsage then
     begin
-      FSnapshot.CodexTodayTokens := PreviousCodexTodayTokens;
       FSnapshot.CodexSevenDayTokens := PreviousCodexSevenDayTokens;
       FSnapshot.CodexMonthTokens := PreviousCodexMonthTokens;
       FSnapshot.CodexDailyUsageAvailable := True;
+      FSnapshot.CodexUsageAvailable := True;
+    end;
+    if PreserveCodexToday then
+    begin
+      FSnapshot.CodexTodayTokens := PreviousCodexTodayTokens;
+      FSnapshot.CodexTodayUsageAvailable := True;
       FSnapshot.CodexUsageAvailable := True;
     end;
     FPublisher.Publish(FSnapshot);

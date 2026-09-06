@@ -48,7 +48,7 @@ begin
       '"dailyUsageBuckets":[{"startDate":"' + TodayText + '","tokens":25},' +
       '{"startDate":"' + YesterdayText + '","tokens":100},' +
       '{"startDate":"' + OldText + '","tokens":1000}]}');
-    Check(Snapshot.CodexLifetimeAvailable and Snapshot.CodexDailyUsageAvailable,
+    Check(Snapshot.CodexLifetimeAvailable and Snapshot.CodexDailyUsageAvailable and Snapshot.CodexTodayUsageAvailable,
       'Complete usage response was marked unavailable');
     Check(Snapshot.CodexLifetimeTokens = 40000000000, 'Lifetime Int64 changed');
     Check(Snapshot.CodexTodayTokens = 25, 'Today aggregation is wrong');
@@ -59,12 +59,13 @@ begin
     Check(Snapshot.CodexUsageAvailable and
       not Snapshot.CodexLifetimeAvailable and Snapshot.CodexDailyUsageAvailable,
       'Missing lifetime must not hide an available empty daily series');
-    Check(Snapshot.CodexTodayTokens = 0, 'An empty daily series means zero');
+    Check(not Snapshot.CodexTodayUsageAvailable,
+      'An empty daily series must not invent a reported zero for today');
 
     Client.Usage(Snapshot,
       '{"summary":{"lifetimeTokens":0},"dailyUsageBuckets":null}');
     Check(Snapshot.CodexLifetimeAvailable and
-      not Snapshot.CodexDailyUsageAvailable and Snapshot.CodexUsageAvailable,
+      not Snapshot.CodexDailyUsageAvailable and not Snapshot.CodexTodayUsageAvailable and Snapshot.CodexUsageAvailable,
       'Zero lifetime is available; null daily data is unavailable');
 
     Rejected := False;
