@@ -1,4 +1,4 @@
-program CodexSmoke;
+﻿program CodexSmoke;
 
 {$APPTYPE CONSOLE}
 

@@ -1,4 +1,4 @@
-program CodexTests;
+﻿program CodexTests;
 
 {$APPTYPE CONSOLE}
 

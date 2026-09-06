@@ -281,7 +281,7 @@ begin
   Result := TLabel.Create(FSettingsScroll);
   Result.Parent := FSettingsScroll;
   Result.Text := AText;
-  Result.StyledSettings := [];*
+  Result.StyledSettings := [];
   Result.TextSettings.Font.Size := 14;
   Result.TextSettings.FontColor := TextColor;
   Result.Position.X := AX;

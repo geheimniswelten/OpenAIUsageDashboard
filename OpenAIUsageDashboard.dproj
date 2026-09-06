@@ -208,10 +208,6 @@
         <DelphiCompile Include="$(MainSource)">
             <MainSource>MainSource</MainSource>
         </DelphiCompile>
-        <DCCReference Include="Dashboard.Main.pas">
-            <Form>MainForm</Form>
-            <FormType>fmx</FormType>
-        </DCCReference>
         <DCCReference Include="Dashboard.Codex.pas"/>
         <DCCReference Include="Dashboard.Model.pas"/>
         <DCCReference Include="Dashboard.OpenAI.pas"/>
@@ -221,6 +217,10 @@
         <DCCReference Include="Dashboard.Settings.pas"/>
         <DCCReference Include="Dashboard.Transport.pas"/>
         <DCCReference Include="Dashboard.Tray.pas"/>
+        <DCCReference Include="Dashboard.Main.pas">
+            <Form>MainForm</Form>
+            <FormType>fmx</FormType>
+        </DCCReference>
         <None Include="AndroidManifest.template.xml"/>
         <None Include="OpenAIUsageDashboard.manifest"/>
         <None Include="OpenAIUsageDashboard.rc"/>

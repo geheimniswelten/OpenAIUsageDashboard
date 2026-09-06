@@ -302,7 +302,8 @@ begin
     BarMax := 0.01;
     for I := 0 to N - 1 do
       BarMax := Max(BarMax, Actual[I].Amount);
-    LineMax := Max(FSnapshot.SpendingLimit, FSnapshot.PeriodCost);
+    { Keep the actual and forecast scale independent of the spending limit. }
+    LineMax := FSnapshot.PeriodCost;
     for I := 0 to High(FSnapshot.Forecast) do
       LineMax := Max(LineMax, FSnapshot.Forecast[I].Cumulative);
     { Include the preceding billing period when it is still visible. }
@@ -372,8 +373,11 @@ begin
     { Spending limit. }
     if FSnapshot.SpendingLimit > 0 then
     begin
-      LimitY := Plot.Bottom - 27 * FScale -
-        (Plot.Height - 52 * FScale) * (FSnapshot.SpendingLimit / LineMax);
+      { A limit above the plotted value range stays visible at the top without
+        changing the scale used by the actual and forecast lines. }
+      LimitY := Max(Plot.Top + 22 * FScale,
+        Plot.Bottom - 27 * FScale - (Plot.Height - 52 * FScale) *
+        (FSnapshot.SpendingLimit / LineMax));
       ACanvas.Stroke.Color := CWarning;
       ACanvas.Stroke.Thickness := Max(1, 1.4 * FScale);
       ACanvas.Stroke.Dash := TStrokeDash.Dash;
@@ -382,9 +386,10 @@ begin
       UsedPct := 100 * FSnapshot.PeriodCost / FSnapshot.SpendingLimit;
       LimitText := Format('Limit %s · %.0f%%',
         [FormatMoney(FSnapshot.SpendingLimit, FSnapshot.Currency), UsedPct]);
-      Text(ACanvas, TRectF.Create(Plot.Right - 250 * FScale,
-        LimitY - 21 * FScale, Plot.Right, LimitY - 2 * FScale), LimitText,
-        9, CWarning, True, TTextAlign.Trailing);
+      Text(ACanvas, TRectF.Create(Plot.Left + 4 * FScale,
+        LimitY + 2 * FScale, Plot.Left + 254 * FScale,
+        LimitY + 21 * FScale), LimitText, 9, CWarning, True,
+        TTextAlign.Leading);
     end;
 
     { Cumulative actual line, resetting at the configured billing boundary. }

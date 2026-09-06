@@ -1,4 +1,4 @@
-program OpenAITests;
+﻿program OpenAITests;
 
 {$APPTYPE CONSOLE}
 

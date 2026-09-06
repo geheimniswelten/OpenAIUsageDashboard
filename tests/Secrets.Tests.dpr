@@ -1,4 +1,4 @@
-program SecretsTests;
+﻿program SecretsTests;
 
 {$APPTYPE CONSOLE}
 

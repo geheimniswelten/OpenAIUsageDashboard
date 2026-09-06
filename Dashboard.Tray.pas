@@ -1,4 +1,4 @@
-unit Dashboard.Tray;
+﻿unit Dashboard.Tray;
 
 interface
 

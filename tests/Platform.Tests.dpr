@@ -1,4 +1,4 @@
-program PlatformTests;
+﻿program PlatformTests;
 
 {$APPTYPE CONSOLE}
 

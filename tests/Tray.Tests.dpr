@@ -1,4 +1,4 @@
-program TrayTests;
+﻿program TrayTests;
 
 {$APPTYPE CONSOLE}
 
