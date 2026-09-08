@@ -104,6 +104,9 @@ API-Kosten, Tagesbuckets und Abrechnungsgrenzen werden konsistent in UTC
 ausgewertet. Liefert die API für heute noch keinen Kostenbetrag, steht dort
 `–` mit entsprechendem Hinweis. Kosten können später als Anfragen eintreffen.
 Codex-Tokenstatistiken verwenden weiterhin den lokalen Kalendertag.
+Codex-Limitkarten benennen die tatsächlich gemeldete Fensterdauer, etwa `7 Tage`
+oder `5 Stunden`. Nur bei fehlender oder nichtpositiver Dauer bleibt die Beschriftung
+`Primär` beziehungsweise `Sekundär`; Prozente und Resetzeiten werden unverändert übernommen.
 Hat das Dashboard am selben Tag bereits einen Kosten- oder Codex-Tageswert
 empfangen, bleibt dieser bei einer vorübergehend unvollständigen Folgeantwort
 sichtbar. Beim UTC-Tageswechsel der Kosten beziehungsweise lokalen Tageswechsel

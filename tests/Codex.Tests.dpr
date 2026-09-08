@@ -31,15 +31,41 @@ begin
     raise Exception.Create(AMessage);
 end;
 
+procedure CheckWindowNames(const AClient: TTestClient; const ASnapshot: TUsageSnapshot;
+  const APrimaryMinutes, ASecondaryMinutes: Integer;
+  const APrimaryName, ASecondaryName: string);
+begin
+  AClient.Limits(ASnapshot, '{"rateLimits":{"limitId":"codex",' +
+    '"primary":{"usedPercent":25,"windowDurationMins":' + IntToStr(APrimaryMinutes) +
+    ',"resetsAt":2000000000},"secondary":{"usedPercent":66,"windowDurationMins":' +
+    IntToStr(ASecondaryMinutes) + ',"resetsAt":2000000300}}}');
+  Check(Length(ASnapshot.RateLimits) = 2, 'Both available windows must remain');
+  Check((ASnapshot.RateLimits[0].Id = 'codex:codex:primary') and
+    (ASnapshot.RateLimits[1].Id = 'codex:codex:secondary'),
+    'Duration labels must not change window order or identity');
+  Check((ASnapshot.RateLimits[0].WindowName = APrimaryName) and
+    (ASnapshot.RateLimits[1].WindowName = ASecondaryName),
+    'Window labels must describe the reported durations');
+  Check((ASnapshot.RateLimits[0].WindowMinutes = APrimaryMinutes) and
+    (ASnapshot.RateLimits[1].WindowMinutes = ASecondaryMinutes),
+    'Original window durations must be preserved');
+  Check((ASnapshot.RateLimits[0].UsedPercent = 25) and
+    (ASnapshot.RateLimits[1].UsedPercent = 66), 'Duration labels changed percentages');
+  Check((DateTimeToUnix(ASnapshot.RateLimits[0].ResetsAt, False) = 2000000000) and
+    (DateTimeToUnix(ASnapshot.RateLimits[1].ResetsAt, False) = 2000000300),
+    'Duration labels changed reset times');
+end;
+
 procedure RunTests;
 var
   Client: TTestClient;
-  Snapshot: TUsageSnapshot;
+  Snapshot, RoundTrip: TUsageSnapshot;
   Rejected: Boolean;
   TodayText, YesterdayText, OldText: string;
 begin
   Client := TTestClient.Create;
   Snapshot := TUsageSnapshot.Create;
+  RoundTrip := TUsageSnapshot.Create;
   try
     TodayText := FormatDateTime('yyyy-mm-dd', Date);
     YesterdayText := FormatDateTime('yyyy-mm-dd', IncDay(Date, -1));
@@ -108,6 +134,24 @@ begin
     Check(Snapshot.RateLimits[0].Id = 'codex:codex:primary',
       'Codex limit should be before Spark');
 
+    CheckWindowNames(Client, Snapshot, 10080, 300, '7 Tage', '5 Stunden');
+    CheckWindowNames(Client, Snapshot, 300, 10080, '5 Stunden', '7 Tage');
+    RoundTrip.FromJson(Snapshot.ToJson);
+    Check((Length(RoundTrip.RateLimits) = 2) and
+      (RoundTrip.RateLimits[0].WindowName = '5 Stunden') and
+      (RoundTrip.RateLimits[1].WindowName = '7 Tage') and
+      (RoundTrip.RateLimits[0].WindowMinutes = 300) and
+      (RoundTrip.RateLimits[1].WindowMinutes = 10080),
+      'Duration labels and minutes must survive viewer snapshot transfer');
+    CheckWindowNames(Client, Snapshot, 1440, 60, '1 Tag', '1 Stunde');
+    CheckWindowNames(Client, Snapshot, 1, 90, '1 Minute', '90 Minuten');
+    CheckWindowNames(Client, Snapshot, 0, -1, 'Primär', 'Sekundär');
+    Client.Limits(Snapshot, '{"rateLimits":{"limitId":"codex",' +
+      '"primary":{"usedPercent":25},"secondary":{"usedPercent":66,"windowDurationMins":null}}}');
+    Check((Snapshot.RateLimits[0].WindowName = 'Primär') and
+      (Snapshot.RateLimits[1].WindowName = 'Sekundär'),
+      'Missing or null durations must retain neutral role labels');
+
     Rejected := False;
     try
       Client.Limits(Snapshot,
@@ -120,6 +164,7 @@ begin
       (Length(Snapshot.RateLimits) = 0),
       'Null limit must not preserve stale windows or create false zero');
   finally
+    RoundTrip.Free;
     Snapshot.Free;
     Client.Free;
   end;
