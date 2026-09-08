@@ -10,6 +10,7 @@ uses
   System.Classes,
   System.Types,
   System.UITypes,
+  FMX.Controls.Presentation,
   FMX.Types,
   FMX.Controls,
   FMX.Forms,
@@ -19,17 +20,17 @@ uses
   FMX.StdCtrls,
   FMX.Edit,
   FMX.ListBox,
+  FMX.ComboEdit,
   Dashboard.Model,
   Dashboard.Settings,
   Dashboard.Renderer,
   Dashboard.Platform,
   Dashboard.Transport,
   Dashboard.Codex,
-  Dashboard.OpenAI
   {$IFDEF MSWINDOWS}
-    , Dashboard.Tray
+    Dashboard.Tray,
   {$IFEND}
-  ;
+  Dashboard.OpenAI;
 
 type
   TSettingsFieldLayout = record
@@ -64,7 +65,7 @@ type
     FViewerTokenEdit: TEdit;
     FLimitEdit: TEdit;
     FBillingDayEdit: TEdit;
-    FDisplayCombo: TComboBox;
+    FDisplayCombo: TComboEdit;
     FDisplayValues: TArray<Integer>;
     FIdleEdit: TEdit;
     FMessageLabel: TLabel;
@@ -351,6 +352,7 @@ begin
     if FDisplayCombo.Count > 0 then
       FDisplayCombo.ItemIndex := EnsureRange(SelectedIndex, 0,
         FDisplayCombo.Count - 1);
+    {$IF False}  // ist/war für TComboBox (nicht TComboEdit)
     for I := 0 to FDisplayCombo.Count - 1 do
     begin
       FDisplayCombo.ListItems[I].StyledSettings := [];
@@ -361,6 +363,7 @@ begin
         FDisplayCombo.ListItems[I].TextSettings.FontColor := TAlphaColor($FF102018);
       {$IFEND}
     end;
+    {$IFEND}
   finally
     FDisplayCombo.Items.EndUpdate;
     FDisplayCombo.OnChange := SavedOnChange;
@@ -459,13 +462,13 @@ begin
     AddSettingsField('Monats-/Periodenlimit in USD (0 = API bzw. unbekannt)', FLimitEdit),
     AddSettingsField('Abrechnungstag (1–28)', FBillingDayEdit)], 250);
 
-  FDisplayCombo := TComboBox.Create(FSettingsScroll);
+  FDisplayCombo := TComboEdit.Create(FSettingsScroll);
   FDisplayCombo.Parent := FSettingsScroll;
   FDisplayCombo.Width := 390;
   FDisplayCombo.Height := 54;
   FDisplayCombo.ItemHeight := 50;
   FDisplayCombo.DropDownCount := 8;
-  FDisplayCombo.DisableMouseWheel := True;
+  //FDisplayCombo.DisableMouseWheel := True;  // war für TComboBox
   {$IFDEF ANDROID}
     FDisplayCombo.StyledSettings := FDisplayCombo.StyledSettings - [TStyledSetting.FontColor];
     FDisplayCombo.TextSettings.FontColor := TAlphaColors.White;

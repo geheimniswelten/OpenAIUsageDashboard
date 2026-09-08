@@ -731,6 +731,31 @@ begin
       end;
 end;
 
+function LimitDurationName(const AMinutes: Integer; const AFallback: string): string;
+var
+  Count: Integer;
+  UnitName: string;
+begin
+  if AMinutes <= 0 then
+    Exit(AFallback);
+  if AMinutes mod 1440 = 0 then
+  begin
+    Count := AMinutes div 1440;
+    if Count = 1 then UnitName := 'Tag' else UnitName := 'Tage';
+  end
+  else if AMinutes mod 60 = 0 then
+  begin
+    Count := AMinutes div 60;
+    if Count = 1 then UnitName := 'Stunde' else UnitName := 'Stunden';
+  end
+  else
+  begin
+    Count := AMinutes;
+    if Count = 1 then UnitName := 'Minute' else UnitName := 'Minuten';
+  end;
+  Result := IntToStr(Count) + ' ' + UnitName;
+end;
+
 procedure AddRateLimitWindow(var ALimits: TArray<TRateLimitWindow>;
   const ALimit: TJSONObject; const APropertyName, ADisplayName: string);
 var
@@ -757,9 +782,9 @@ begin
   SetLength(ALimits, N + 1);
   ALimits[N].Id := 'codex:' + LimitId + ':' + APropertyName;
   ALimits[N].Name := LimitName;
-  ALimits[N].WindowName := ADisplayName;
   ALimits[N].UsedPercent := Used;
   ALimits[N].WindowMinutes := JsonInt64(Window, 'windowDurationMins');
+  ALimits[N].WindowName := LimitDurationName(ALimits[N].WindowMinutes, ADisplayName);
   ResetSeconds := JsonInt64(Window, 'resetsAt');
   if ResetSeconds > 0 then
     ALimits[N].ResetsAt := UnixToDateTime(ResetSeconds, False)
