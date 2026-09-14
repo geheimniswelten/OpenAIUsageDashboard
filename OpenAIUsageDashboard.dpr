@@ -4,6 +4,7 @@ uses
   System.StartUpCopy,
   FMX.Forms,
   Dashboard.Codex in 'Dashboard.Codex.pas',
+  Dashboard.DisplayPolicy in 'Dashboard.DisplayPolicy.pas',
   Dashboard.Model in 'Dashboard.Model.pas',
   Dashboard.OpenAI in 'Dashboard.OpenAI.pas',
   Dashboard.Platform in 'Dashboard.Platform.pas',

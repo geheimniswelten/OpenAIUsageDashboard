@@ -208,12 +208,57 @@ die Touchflächen oder Schrift zu verkleinern.
 - Windows: Das Dashboard bleibt sichtbar; alle anderen Monitore erhalten schwarze,
   rahmenlose Topmost-Fenster. Globale Maus-, Tastatur- oder Touch-Eingabe deckt sie
   auf, nach zehn Minuten ohne Eingabe werden sie erneut schwarz. Monitoranzahl und
-  -geometrie werden laufend geprüft.
+  -geometrie werden laufend geprüft. Ein unsichtbares Windows-Fenster im
+  `TPlatformCoordinator` empfängt `WM_DISPLAYCHANGE`, `WM_DEVICECHANGE`, relevante
+  `WM_SETTINGCHANGE`-Meldungen und Resume-Ereignisse. Nach einer kurzen Wartezeit
+  wird die FMX-Monitorliste aktualisiert und das Dashboard mit nativen
+  Pixelkoordinaten ohne Fokuswechsel neu platziert. Für fünf Sekunden wird die
+  Platzierung nachgeführt, falls Windows sie während des Wiederanmeldens ändert.
+  Die Gerätekennung des gewählten Monitors bleibt während der Programmlaufzeit
+  erhalten, auch wenn er verschwindet oder die Monitorindizes wechseln. Eine
+  vorübergehende Ausweichanzeige überschreibt diese Zuordnung nicht. Das betrifft
+  das Dashboard; fremde Vollbildfenster wie Firefox/YouTube werden nicht verwaltet.
 - Windows: `SetThreadExecutionState(ES_CONTINUOUS | ES_DISPLAY_REQUIRED |
-  ES_SYSTEM_REQUIRED)` wird im Zeitfenster regelmäßig erneuert und außerhalb mit
-  `ES_CONTINUOUS` zurückgenommen.
+  ES_SYSTEM_REQUIRED)` wird Montag bis Freitag im Zeitfenster regelmäßig erneuert.
+  Außerhalb bleibt im Dashboardbetrieb `ES_CONTINUOUS | ES_SYSTEM_REQUIRED` aktiv:
+  Der PC bleibt für den morgendlichen Anwendungstimer betriebsbereit, während
+  Windows die Monitore nach seinem normalen Timeout ausschalten darf. Beim
+  Eintritt ins Zeitfenster und nach Resume innerhalb des Zeitfensters wird
+  zusätzlich `WM_SYSCOMMAND / SC_MONITORPOWER / -1` an die Standard-Fensterprozedur
+  des eigenen Nachrichtenfensters übergeben. Es werden keine Eingaben simuliert.
+  Im reinen Sammlermodus gilt weiterhin die bisherige Regel: nur tagsüber den PC
+  wachhalten, keine Bildschirm-Anforderung. Beim Beenden werden alle Anforderungen
+  freigegeben. Manuelles Schlafen, ausgeschaltete Hardware und getrennte Kabel
+  können diese APIs nicht aufheben.
+- Windows-Diagnose: Unter `%TEMP%\OpenAIUsageDashboard-display.log` im ausführenden
+  Benutzerkonto entsteht ein Protokoll. Es enthält Zeitfenster-/Moduswechsel,
+  Power-API-Fehler, Einschaltanforderungen, Suspend/Resume und Monitorzuordnungen
+  mit Ortszeit. Bei 1 MiB wird eine einzelne `.previous`-Datei vorgehalten.
+  Ein protokollierter Einschaltbefehl ist keine Bestätigung der Hardware.
 - Android: `FLAG_KEEP_SCREEN_ON` wird im selben Zeitfenster dynamisch auf Activity
   und Presentation gesetzt beziehungsweise entfernt.
+
+Die bisherige Zeitprüfung sah den 10-Uhr-Aufruf bereits vor. Ohne Protokoll vom
+betroffenen PC ist nicht rückwirkend beweisbar, ob der Aufruf ausblieb oder der
+Monitor/Treiber nicht auf die Anforderung reagierte. Das neue Protokoll macht
+diesen Unterschied beim nächsten Test sichtbar. Der nachgewiesene Fehler bei der
+Monitorrückkehr war das Überschreiben des Zielindex durch einen Ausweichmonitor.
+
+Windows-API-Referenzen: [SetThreadExecutionState](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-setthreadexecutionstate),
+[SC_MONITORPOWER](https://learn.microsoft.com/en-us/windows/win32/menurc/wm-syscommand),
+[WM_DISPLAYCHANGE](https://learn.microsoft.com/en-us/windows/win32/gdi/wm-displaychange),
+[Monitor-Gerätekennung](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-enumdisplaydevicesw).
+
+Zum Prüfen auf dem Ziel-PC: Die neue EXE anstelle der bisherigen starten, das
+Windows-Monitortimeout unverändert lassen und das nächste Zeitfenster abwarten
+(oder die vorhandenen `KeepAwakeStartHour`/`KeepAwakeEndHour` in der INI für einen
+kurzen Test anpassen und neu starten). Nach Rückkehr des Monitors sollte das
+Dashboard innerhalb weniger Sekunden wieder auf ihm liegen. Im Log müssen beim
+Eintritt ins Zeitfenster `KeepAwake=True`, `flags=$80000003` und anschließend
+`Display power-on requested` erscheinen; außerhalb `flags=$80000001`. Ein
+vorheriges `Windows suspend notification` bzw. späteres `Resume=True` weist auf
+einen zusätzlichen PC-Standby hin. Fehlende 10-Uhr-Einträge allein beweisen dessen
+Ursache nicht; dann auch Prozesslaufzeit und Windows-Ereignisprotokoll prüfen.
 
 ## Einstellungen
 
@@ -263,6 +308,10 @@ OtherDisplayIdleMinutes=10
 - `tests/Platform.Tests.dpr` prüft die `CanShow`-Sperre für ein unsichtbares
   FMX-Fenster und stellt sicher, dass der Sammlermodus keine Abdeckfenster
   erzeugt und das Dashboard weder anzeigt noch auf einen Monitor verschiebt.
+  Zusätzlich prüft es die 10-/18-Uhr-Grenzen aller Wochentage, getrennte System-
+  und Display-Anforderungen, explizites Aufwecken, Resume und API-Fehler mit
+  Wiederholung sowie Monitorrückkehr, Indexwechsel und vorübergehende Ersatzmonitore.
+  Power-APIs werden dabei ersetzt; der Test schaltet keine echten Monitore um.
 - `tests/Codex.Smoke.dpr` ist ein optionaler Live-Test gegen eine lokal angemeldete
   Codex-CLI; `--discover` prüft nur die Programmsuche. Diese findet hier die
   Desktop-CLI auch bei reduziertem PATH. Der angemeldete Liveabruf konnte in der

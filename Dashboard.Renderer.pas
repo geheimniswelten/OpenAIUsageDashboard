@@ -1,4 +1,4 @@
-﻿unit Dashboard.Renderer;
+unit Dashboard.Renderer;
 
 interface
 
@@ -80,6 +80,18 @@ begin
     Result := FormatFloat('#,##0.00', V, GermanFormatSettings) + ' €'
   else
     Result := FormatFloat('#,##0.00', V, GermanFormatSettings) + ' $';
+end;
+
+function FormatLimitPercent(const V: Double): string;
+begin
+  if V >= 100 then
+    Result := FormatFloat('0', V, GermanFormatSettings) + '%'
+  else if V > 97 then
+    Result := FormatFloat('0.00', V, GermanFormatSettings) + '%'
+  else if V > 85 then
+    Result := FormatFloat('0.0', V, GermanFormatSettings) + '%'
+  else
+    Result := FormatFloat('0', V, GermanFormatSettings) + '%';
 end;
 
 function CompactNumber(const V: Int64): string;
@@ -631,15 +643,15 @@ begin
     X := ARect.Left + 15 * FScale;
     R := TRectF.Create(X, ARect.Top + 38 * FScale, X + CardW, ARect.Bottom - 10 * FScale);
     Box(ACanvas, R, TAlphaColor($FF091D25), CBlueBorder, 10);
-    Pct := Clamp(100 * FSnapshot.PeriodCost / FSnapshot.SpendingLimit, 0, 100);
-    Text(ACanvas, TRectF.Create(R.Left + 10 * FScale, R.Top + 5 * FScale, R.Right - 55 * FScale, R.Top + 27 * FScale), 'API-Ausgaben', 9, CText, True);
-    Text(ACanvas, TRectF.Create(R.Right - 55 * FScale, R.Top + 5 * FScale, R.Right - 9 * FScale, R.Top + 27 * FScale), 
-      FormatFloat('0', Pct) + '%', 15, LimitColor(Pct), True, TTextAlign.Trailing);
+    Pct := Max(0, 100 * FSnapshot.PeriodCost / FSnapshot.SpendingLimit);
+    Text(ACanvas, TRectF.Create(R.Left + 10 * FScale, R.Top + 5 * FScale, R.Right - 80 * FScale, R.Top + 27 * FScale), 'API-Ausgaben', 9, CText, True);
+    Text(ACanvas, TRectF.Create(R.Right - 80 * FScale, R.Top + 5 * FScale, R.Right - 9 * FScale, R.Top + 27 * FScale),
+      FormatLimitPercent(Pct), 15, LimitColor(Pct), True, TTextAlign.Trailing);
     Track := TRectF.Create(R.Left + 10 * FScale, R.Top + 34 * FScale, R.Right - 10 * FScale, R.Top + 42 * FScale);
     ACanvas.Fill.Color := TAlphaColor($FF1C4355);
     ACanvas.FillRect(Track, 4 * FScale, 4 * FScale, AllCorners, 1);
     Fill := Track;
-    Fill.Right := Fill.Left + Fill.Width * Pct / 100;
+    Fill.Right := Fill.Left + Fill.Width * Clamp(Pct, 0, 100) / 100;
     ACanvas.Fill.Color := LimitColor(Pct);
     ACanvas.FillRect(Fill, 4 * FScale, 4 * FScale, AllCorners, 1);
     Text(ACanvas, TRectF.Create(R.Left + 10 * FScale, R.Top + 45 * FScale, R.Right - 10 * FScale, R.Bottom - 3 * FScale),
@@ -653,16 +665,16 @@ begin
     Box(ACanvas, R, TAlphaColor($FF091D25), CBlueBorder, 10);
     with FSnapshot.RateLimits[I - Ord(FSnapshot.SpendingLimit > 0)] do
     begin
-      Pct := Clamp(UsedPercent, 0, 100);
+      Pct := Max(0, UsedPercent);
       NameText := Name;
-      Text(ACanvas, TRectF.Create(R.Left + 10 * FScale, R.Top + 5 * FScale, R.Right - 55 * FScale, R.Top + 27 * FScale), NameText, 9, CText, True);
-      Text(ACanvas, TRectF.Create(R.Right - 55 * FScale, R.Top + 5 * FScale, R.Right - 9 * FScale, R.Top + 27 * FScale), FormatFloat('0', Pct) + '%',
+      Text(ACanvas, TRectF.Create(R.Left + 10 * FScale, R.Top + 5 * FScale, R.Right - 80 * FScale, R.Top + 27 * FScale), NameText, 9, CText, True);
+      Text(ACanvas, TRectF.Create(R.Right - 80 * FScale, R.Top + 5 * FScale, R.Right - 9 * FScale, R.Top + 27 * FScale), FormatLimitPercent(Pct),
         15, LimitColor(Pct), True, TTextAlign.Trailing);
       Track := TRectF.Create(R.Left + 10 * FScale, R.Top + 34 * FScale, R.Right - 10 * FScale, R.Top + 42 * FScale);
       ACanvas.Fill.Color := TAlphaColor($FF1C4355);
       ACanvas.FillRect(Track, 4 * FScale, 4 * FScale, AllCorners, 1);
       Fill := Track;
-      Fill.Right := Fill.Left + Fill.Width * Pct / 100;
+      Fill.Right := Fill.Left + Fill.Width * Clamp(Pct, 0, 100) / 100;
       ACanvas.Fill.Color := LimitColor(Pct);
       ACanvas.FillRect(Fill, 4 * FScale, 4 * FScale, AllCorners, 1);
       if ResetsAt > 0 then
