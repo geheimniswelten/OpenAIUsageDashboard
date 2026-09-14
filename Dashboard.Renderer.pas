@@ -14,17 +14,12 @@ type
   private
     FSnapshot: TUsageSnapshot;
     FScale: Single;
-    procedure SetFont(const ACanvas: TCanvas; const ASize: Single;
-      const ABold: Boolean = False);
-    procedure Text(const ACanvas: TCanvas; const ARect: TRectF;
-      const AText: string; const ASize: Single; const AColor: TAlphaColor;
-      const ABold: Boolean = False; const AAlign: TTextAlign = TTextAlign.Leading;
-      const AVertical: TTextAlign = TTextAlign.Center);
-    procedure Box(const ACanvas: TCanvas; const ARect: TRectF;
-      const AFill, AStroke: TAlphaColor; const ARadius: Single = 14);
+    procedure SetFont(const ACanvas: TCanvas; const ASize: Single; const ABold: Boolean = False);
+    procedure Text(const ACanvas: TCanvas; const ARect: TRectF; const AText: string; const ASize: Single; const AColor: TAlphaColor;
+      const ABold: Boolean = False; const AAlign: TTextAlign = TTextAlign.Leading; const AVertical: TTextAlign = TTextAlign.Center);
+    procedure Box(const ACanvas: TCanvas; const ARect: TRectF; const AFill, AStroke: TAlphaColor; const ARadius: Single = 14);
     procedure DrawHeader(const ACanvas: TCanvas; const ARect: TRectF);
-    procedure DrawKpi(const ACanvas: TCanvas; const ARect: TRectF;
-      const ACaption, AValue, ADetail: string; const AAccent: Boolean = False);
+    procedure DrawKpi(const ACanvas: TCanvas; const ARect: TRectF; const ACaption, AValue, ADetail: string; const AAccent: Boolean = False);
     procedure DrawChart(const ACanvas: TCanvas; const ARect: TRectF);
     procedure DrawModels(const ACanvas: TCanvas; const ARect: TRectF);
     procedure DrawServices(const ACanvas: TCanvas; const ARect: TRectF);
@@ -43,8 +38,7 @@ implementation
 uses
   System.SysUtils,
   System.DateUtils,
-  System.Math,
-  System.Generics.Collections;
+  System.Math;
 
 const
   CBackground = TAlphaColor($FF06140F);
@@ -265,250 +259,227 @@ end;
 procedure TDashboardRenderer.DrawChart(const ACanvas: TCanvas; const ARect: TRectF);
 var
   Plot, HeaderRect, Cell, BarRect, LabelRect: TRectF;
-  Actual: TList<TDailyCost>;
-  ActualStart, I, J, N, TrendIndex: Integer;
-  ActualWidth, ForecastWidth, CellWidth, X, Y, BarMax, LineMax, Running,
-    LimitY, UsedPct, TrendStart, TrendEnd: Double;
+  Actual: TArray<TDailyChartDay>;
+  I, J, N, TrendIndex: Integer;
+  ActualWidth, ForecastWidth, CellWidth, X, Y, BarMax, LineMax, Running, LimitY: Double;
+  UsedPct, TrendStart, TrendEnd, RequestMax, GraphTop, GraphBottom, GraphHeight: Double;
   DayValue, PointPeriodStart, PreviousPeriodStart: TDateTime;
   PreviousPoint, Point: TPointF;
   HasPrevious, FirstForecast, NewPeriodSeen: Boolean;
   LimitText: string;
 begin
   Box(ACanvas, ARect, CPanel, CBorder);
-  HeaderRect := TRectF.Create(ARect.Left + 16 * FScale, ARect.Top + 8 * FScale,
-    ARect.Right - 16 * FScale, ARect.Top + 43 * FScale);
-  Text(ACanvas, HeaderRect, 'Tägliche Kosten · 14 Tage + 4-Wochen-Prognose',
-    15, CText, True);
-  Plot := TRectF.Create(ARect.Left + 18 * FScale, ARect.Top + 52 * FScale,
-    ARect.Right - 18 * FScale, ARect.Bottom - 22 * FScale);
+  HeaderRect := TRectF.Create(ARect.Left + 16 * FScale, ARect.Top + 8 * FScale, ARect.Right - 16 * FScale, ARect.Top + 43 * FScale);
+  Text(ACanvas, HeaderRect, 'Kosten & API-Anfragen · 14 Tage + 4-Wochen-Prognose', 15, CText, True);
+  Text(ACanvas, TRectF.Create(ARect.Left + 18 * FScale, ARect.Top + 39 * FScale,  ARect.Left + 255 * FScale, ARect.Top + 64 * FScale),
+    'Grün: Kosten (' + FSnapshot.Currency + ')', 9, CGreen);
+  Text(ACanvas, TRectF.Create(ARect.Left + 265 * FScale, ARect.Top + 39 * FScale, ARect.Right - 18 * FScale, ARect.Top + 64 * FScale),
+    'Blau: Anfragen · eigene Skala  |  Weiß: gemeldete Kosten summiert  |  Tage in UTC', 9, CBlue);
+  Plot := TRectF.Create(ARect.Left + 18 * FScale, ARect.Top + 72 * FScale, ARect.Right - 18 * FScale, ARect.Bottom - 22 * FScale);
   if (Plot.Width < 100) or (Plot.Height < 80) then
     Exit;
 
-  Actual := TList<TDailyCost>.Create;
-  try
-    ActualStart := Max(0, Length(FSnapshot.DailyCosts) - 14);
-    for I := ActualStart to High(FSnapshot.DailyCosts) do
-      Actual.Add(FSnapshot.DailyCosts[I]);
-    N := Actual.Count;
-    if N = 0 then
-    begin
-      Text(ACanvas, Plot, 'Noch keine Kostendaten', 13, CMuted, False,
-        TTextAlign.Center);
-      Exit;
-    end;
-    ActualWidth := Plot.Width * 0.81;
-    ForecastWidth := Plot.Width - ActualWidth;
-    CellWidth := ActualWidth / N;
-    BarMax := 0.01;
-    for I := 0 to N - 1 do
-      BarMax := Max(BarMax, Actual[I].Amount);
-    { Keep the actual and forecast scale independent of the spending limit. }
-    LineMax := FSnapshot.PeriodCost;
-    for I := 0 to High(FSnapshot.Forecast) do
-      LineMax := Max(LineMax, FSnapshot.Forecast[I].Cumulative);
-    { Include the preceding billing period when it is still visible. }
-    Running := 0;
-    PreviousPeriodStart := 0;
-    for I := 0 to High(FSnapshot.DailyCosts) do
-    begin
-      PointPeriodStart := FSnapshot.PeriodStart;
-      while FSnapshot.DailyCosts[I].Day < PointPeriodStart do
-        PointPeriodStart := IncMonth(PointPeriodStart, -1);
-      while FSnapshot.DailyCosts[I].Day >= IncMonth(PointPeriodStart, 1) do
-        PointPeriodStart := IncMonth(PointPeriodStart, 1);
-      if (PreviousPeriodStart = 0) or
-         not SameDate(PointPeriodStart, PreviousPeriodStart) then
-        Running := 0;
-      Running := Running + FSnapshot.DailyCosts[I].Amount;
-      LineMax := Max(LineMax, Running);
-      PreviousPeriodStart := PointPeriodStart;
-    end;
-    LineMax := Max(1, LineMax * 1.12);
-
-    { Background bands: weekends only, as requested. }
-    for I := 0 to N - 1 do
-    begin
-      Cell := TRectF.Create(Plot.Left + I * CellWidth, Plot.Top,
-        Plot.Left + (I + 1) * CellWidth - 2 * FScale, Plot.Bottom);
-      if DayOfTheWeek(Actual[I].Day) >= 6 then
-      begin
-        ACanvas.Fill.Color := CWeekend;
-        ACanvas.FillRect(Cell, 1);
-      end;
-    end;
-    ACanvas.Fill.Color := CForecast;
-    ACanvas.FillRect(TRectF.Create(Plot.Left + ActualWidth, Plot.Top,
-      Plot.Right, Plot.Bottom), 0.55);
-    ACanvas.Stroke.Color := CBorder;
-    ACanvas.Stroke.Thickness := Max(1, FScale);
-    ACanvas.Stroke.Dash := TStrokeDash.Dot;
-    ACanvas.DrawLine(TPointF.Create(Plot.Left + ActualWidth, Plot.Top),
-      TPointF.Create(Plot.Left + ActualWidth, Plot.Bottom), 1);
-
-    { Daily bars. }
-    for I := 0 to N - 1 do
-    begin
-      X := Plot.Left + I * CellWidth;
-      Y := Plot.Bottom - 25 * FScale -
-        (Plot.Height - 48 * FScale) * (Actual[I].Amount / BarMax);
-      BarRect := TRectF.Create(X + CellWidth * 0.24, Y,
-        X + CellWidth * 0.76, Plot.Bottom - 25 * FScale);
-      ACanvas.Fill.Color := IfThen(SameDate(Actual[I].Day,
-        DateOf(TTimeZone.Local.ToUniversalTime(FSnapshot.LastUpdated))), CLime, CGreen);
-      ACanvas.FillRect(BarRect, 5 * FScale, 5 * FScale, [TCorner.TopLeft,
-        TCorner.TopRight], 0.88);
-      if Actual[I].HasCostData or (Actual[I].Amount <> 0) then
-        Text(ACanvas, TRectF.Create(X, Plot.Top, X + CellWidth, Plot.Top + 20 * FScale),
-          FormatFloat('0.00', Actual[I].Amount, GermanFormatSettings), 8,
-          CMuted, False, TTextAlign.Center)
-      else
-        Text(ACanvas, TRectF.Create(X, Plot.Top, X + CellWidth, Plot.Top + 20 * FScale),
-          '–', 8, CMuted, False, TTextAlign.Center);
-      LabelRect := TRectF.Create(X, Plot.Bottom - 22 * FScale,
-        X + CellWidth, Plot.Bottom);
-      Text(ACanvas, LabelRect, FormatDateTime('dd.mm.', Actual[I].Day),
-        8, CMuted, False, TTextAlign.Center);
-    end;
-
-    { Spending limit. }
-    if FSnapshot.SpendingLimit > 0 then
-    begin
-      { A limit above the plotted value range stays visible at the top without
-        changing the scale used by the actual and forecast lines. }
-      LimitY := Max(Plot.Top + 22 * FScale,
-        Plot.Bottom - 27 * FScale - (Plot.Height - 52 * FScale) *
-        (FSnapshot.SpendingLimit / LineMax));
-      ACanvas.Stroke.Color := CWarning;
-      ACanvas.Stroke.Thickness := Max(1, 1.4 * FScale);
-      ACanvas.Stroke.Dash := TStrokeDash.Dash;
-      ACanvas.DrawLine(TPointF.Create(Plot.Left, LimitY),
-        TPointF.Create(Plot.Right, LimitY), 0.82);
-      UsedPct := 100 * FSnapshot.PeriodCost / FSnapshot.SpendingLimit;
-      LimitText := Format('Limit %s · %.0f%%',
-        [FormatMoney(FSnapshot.SpendingLimit, FSnapshot.Currency), UsedPct]);
-      Text(ACanvas, TRectF.Create(Plot.Left + 4 * FScale,
-        LimitY + 2 * FScale, Plot.Left + 254 * FScale,
-        LimitY + 21 * FScale), LimitText, 9, CWarning, True,
-        TTextAlign.Leading);
-    end;
-
-    { Cumulative actual line, resetting at the configured billing boundary. }
-    TrendIndex := -1;
-    PreviousPeriodStart := 0;
-    HasPrevious := False;
-    ACanvas.Stroke.Color := CText;
-    ACanvas.Stroke.Thickness := Max(1.5, 2.2 * FScale);
-    ACanvas.Stroke.Dash := TStrokeDash.Solid;
-    for I := 0 to N - 1 do
-    begin
-      DayValue := Actual[I].Day;
-      PointPeriodStart := FSnapshot.PeriodStart;
-      while DayValue < PointPeriodStart do
-        PointPeriodStart := IncMonth(PointPeriodStart, -1);
-      while DayValue >= IncMonth(PointPeriodStart, 1) do
-        PointPeriodStart := IncMonth(PointPeriodStart, 1);
+  Actual := FSnapshot.GetDailyChartDays(14);
+  N := Length(Actual);
+  if N = 0 then
+  begin
+    Text(ACanvas, Plot, 'Noch keine Kosten- oder Nutzungsdaten', 13, CMuted, False, TTextAlign.Center);
+    Exit;
+  end;
+  ActualWidth := Plot.Width * 0.81;
+  ForecastWidth := Plot.Width - ActualWidth;
+  CellWidth := ActualWidth / N;
+  BarMax := 0.01;
+  RequestMax := 1;
+  for I := 0 to N - 1 do
+  begin
+    BarMax := Max(BarMax, Actual[I].Amount);
+    if Actual[I].HasRequestData then
+      RequestMax := Max(RequestMax, Actual[I].Requests);
+  end;
+  { Reserve two label rows above the bars, one per independent unit. }
+  GraphTop := Plot.Top + 47 * FScale;
+  GraphBottom := Plot.Bottom - 25 * FScale;
+  GraphHeight := Max(1, GraphBottom - GraphTop);
+  { Keep the actual and forecast scale independent of the spending limit. }
+  LineMax := FSnapshot.PeriodCost;
+  for I := 0 to High(FSnapshot.Forecast) do
+    LineMax := Max(LineMax, FSnapshot.Forecast[I].Cumulative);
+  { Include the preceding billing period when it is still visible. }
+  Running := 0;
+  PreviousPeriodStart := 0;
+  for I := 0 to High(FSnapshot.DailyCosts) do
+  begin
+    PointPeriodStart := FSnapshot.PeriodStart;
+    while FSnapshot.DailyCosts[I].Day < PointPeriodStart do
+      PointPeriodStart := IncMonth(PointPeriodStart, -1);
+    while FSnapshot.DailyCosts[I].Day >= IncMonth(PointPeriodStart, 1) do
+      PointPeriodStart := IncMonth(PointPeriodStart, 1);
+    if (PreviousPeriodStart = 0) or not SameDate(PointPeriodStart, PreviousPeriodStart) then
       Running := 0;
-      for J := 0 to High(FSnapshot.DailyCosts) do
-        if (FSnapshot.DailyCosts[J].Day >= PointPeriodStart) and
-           (FSnapshot.DailyCosts[J].Day <= DayValue) and
-           (FSnapshot.DailyCosts[J].Day < IncMonth(PointPeriodStart, 1)) then
-          Running := Running + FSnapshot.DailyCosts[J].Amount;
-      if (PreviousPeriodStart <> 0) and
-         not SameDate(PointPeriodStart, PreviousPeriodStart) then
-        HasPrevious := False;
-      Point.X := Plot.Left + (I + 0.5) * CellWidth;
-      Point.Y := Plot.Bottom - 27 * FScale -
-        (Plot.Height - 52 * FScale) * (Running / LineMax);
-      if HasPrevious then
-        ACanvas.DrawLine(PreviousPoint, Point, 1);
-      ACanvas.Fill.Color := CText;
-      ACanvas.FillEllipse(TRectF.Create(Point.X - 2.5 * FScale,
-        Point.Y - 2.5 * FScale, Point.X + 2.5 * FScale,
-        Point.Y + 2.5 * FScale), 1);
-      PreviousPoint := Point;
-      HasPrevious := True;
-      PreviousPeriodStart := PointPeriodStart;
-      if (TrendIndex < 0) and (DayValue >= FSnapshot.PeriodStart) then
-        TrendIndex := I;
-    end;
+    Running := Running + FSnapshot.DailyCosts[I].Amount;
+    LineMax := Max(LineMax, Running);
+    PreviousPeriodStart := PointPeriodStart;
+  end;
+  LineMax := Max(1, LineMax * 1.12);
 
-    { Least-squares trend in the background. }
-    if TrendIndex >= 0 then
+  { Background bands: weekends only, as requested. }
+  for I := 0 to N - 1 do
+  begin
+    Cell := TRectF.Create(Plot.Left + I * CellWidth, Plot.Top, Plot.Left + (I + 1) * CellWidth - 2 * FScale, Plot.Bottom);
+    if DayOfTheWeek(Actual[I].Day) >= 6 then
     begin
-      TrendStart := FSnapshot.ForecastDailyRate * Max(0,
-        DaysBetween(Actual[TrendIndex].Day, FSnapshot.PeriodStart));
-      TrendEnd := FSnapshot.ForecastDailyRate * Max(0,
-        DaysBetween(Actual[N - 1].Day, FSnapshot.PeriodStart));
-      ACanvas.Stroke.Color := CGreen;
-      ACanvas.Stroke.Thickness := Max(1, 1.3 * FScale);
-      ACanvas.Stroke.Dash := TStrokeDash.Dash;
-      ACanvas.DrawLine(TPointF.Create(Plot.Left + (TrendIndex + 0.5) * CellWidth,
-        Plot.Bottom - 27 * FScale - (Plot.Height - 52 * FScale) * TrendStart / LineMax),
-        TPointF.Create(Plot.Left + ActualWidth - CellWidth * 0.5,
-        Plot.Bottom - 27 * FScale - (Plot.Height - 52 * FScale) * TrendEnd / LineMax),
-        0.48);
+      ACanvas.Fill.Color := CWeekend;
+      ACanvas.FillRect(Cell, 1);
     end;
+  end;
+  ACanvas.Fill.Color := CForecast;
+  ACanvas.FillRect(TRectF.Create(Plot.Left + ActualWidth, Plot.Top, Plot.Right, Plot.Bottom), 0.55);
+  ACanvas.Stroke.Color := CBorder;
+  ACanvas.Stroke.Thickness := Max(1, FScale);
+  ACanvas.Stroke.Dash := TStrokeDash.Dot;
+  ACanvas.DrawLine(TPointF.Create(Plot.Left + ActualWidth, Plot.Top), TPointF.Create(Plot.Left + ActualWidth, Plot.Bottom), 1);
 
-    { Four compact future slots, each representing one week. }
-    FirstForecast := True;
-    NewPeriodSeen := False;
-    ACanvas.Stroke.Color := CLime;
-    ACanvas.Stroke.Thickness := Max(1.5, 2 * FScale);
-    ACanvas.Stroke.Dash := TStrokeDash.Dot;
-    for I := 0 to High(FSnapshot.Forecast) do
+  { Costs and model requests have independent scales and a shared date axis. }
+  for I := 0 to N - 1 do
+  begin
+    X := Plot.Left + I * CellWidth;
+    Y := GraphBottom - GraphHeight * (Actual[I].Amount / BarMax);
+    BarRect := TRectF.Create(X + CellWidth * 0.19, Y, X + CellWidth * 0.64, GraphBottom);
+    ACanvas.Fill.Color := IfThen(SameDate(Actual[I].Day, DateOf(TTimeZone.Local.ToUniversalTime(FSnapshot.LastUpdated))), CLime, CGreen);
+    if Actual[I].Amount > 0 then
+      ACanvas.FillRect(BarRect, 5 * FScale, 5 * FScale, [TCorner.TopLeft, TCorner.TopRight], 0.88);
+    if Actual[I].HasRequestData then
     begin
-      X := Plot.Left + ActualWidth + ForecastWidth * (I + 0.5) /
-        Max(1, Length(FSnapshot.Forecast));
-      Y := Plot.Bottom - 27 * FScale - (Plot.Height - 52 * FScale) *
-        (FSnapshot.Forecast[I].Cumulative / LineMax);
-      Point := TPointF.Create(X, Y);
-      if FSnapshot.Forecast[I].StartsNewPeriod and not NewPeriodSeen then
-      begin
-        NewPeriodSeen := True;
-        ACanvas.Stroke.Color := CFaint;
-        ACanvas.DrawLine(TPointF.Create(X - ForecastWidth * 0.08, Plot.Top),
-          TPointF.Create(X - ForecastWidth * 0.08, Plot.Bottom - 25 * FScale), 0.8);
-        Text(ACanvas, TRectF.Create(X - 80 * FScale, Plot.Top + 22 * FScale,
-          X + 80 * FScale, Plot.Top + 42 * FScale), 'Abrechnung → 0', 8,
-          CMuted, False, TTextAlign.Center);
-        ACanvas.Stroke.Color := CLime;
-        FirstForecast := True;
-      end;
-      if FirstForecast then
-      begin
-        if not FSnapshot.Forecast[I].StartsNewPeriod and HasPrevious then
-          ACanvas.DrawLine(PreviousPoint, Point, 1);
-        FirstForecast := False;
-      end
-      else
-        ACanvas.DrawLine(PreviousPoint, Point, 1);
-      ACanvas.Fill.Color := CLime;
-      ACanvas.FillEllipse(TRectF.Create(X - 4 * FScale, Y - 4 * FScale,
-        X + 4 * FScale, Y + 4 * FScale), 1);
-      Text(ACanvas, TRectF.Create(X - ForecastWidth * 0.12,
-        Plot.Top + 3 * FScale, X + ForecastWidth * 0.12,
-        Plot.Top + 21 * FScale), FormatMoney(FSnapshot.Forecast[I].Cumulative,
-        FSnapshot.Currency), 8, CLime, True, TTextAlign.Center);
-      Text(ACanvas, TRectF.Create(X - ForecastWidth * 0.12,
-        Plot.Bottom - 22 * FScale, X + ForecastWidth * 0.12, Plot.Bottom),
-        '+' + IntToStr((I + 1) * 7) + ' T', 8, CMuted, False,
-        TTextAlign.Center);
-      PreviousPoint := Point;
+      Y := GraphBottom - GraphHeight * (Actual[I].Requests / RequestMax);
+      BarRect := TRectF.Create(X + CellWidth * 0.72, Y, X + CellWidth * 0.82, GraphBottom);
+      ACanvas.Fill.Color := CBlue;
+      if Actual[I].Requests > 0 then
+        ACanvas.FillRect(BarRect, 2 * FScale, 2 * FScale, [TCorner.TopLeft, TCorner.TopRight], 0.95);
+      LimitText := CompactNumber(Actual[I].Requests);
+    end
+    else
+      LimitText := '–';
+    Text(ACanvas, TRectF.Create(X, Plot.Top + 20 * FScale, X + CellWidth, Plot.Top + 40 * FScale), LimitText, 8, CBlue, False, TTextAlign.Center);
+    if Actual[I].HasCostData or (Actual[I].Amount <> 0) then
+      Text(ACanvas, TRectF.Create(X, Plot.Top, X + CellWidth, Plot.Top + 20 * FScale), FormatFloat('0.00', Actual[I].Amount, GermanFormatSettings), 
+        8, CGreen, False, TTextAlign.Center)
+    else
+      Text(ACanvas, TRectF.Create(X, Plot.Top, X + CellWidth, Plot.Top + 20 * FScale), '–', 8, CGreen, False, TTextAlign.Center);
+    LabelRect := TRectF.Create(X, Plot.Bottom - 22 * FScale, X + CellWidth, Plot.Bottom);
+    Text(ACanvas, LabelRect, FormatDateTime('dd.mm.', Actual[I].Day), 8, CMuted, False, TTextAlign.Center);
+  end;
+
+  { Spending limit. }
+  if FSnapshot.SpendingLimit > 0 then
+  begin
+    { A limit above the plotted value range stays visible at the top without changing the scale used by the actual and forecast lines. }
+    LimitY := Max(GraphTop, GraphBottom - GraphHeight * (FSnapshot.SpendingLimit / LineMax));
+    ACanvas.Stroke.Color := CWarning;
+    ACanvas.Stroke.Thickness := Max(1, 1.4 * FScale);
+    ACanvas.Stroke.Dash := TStrokeDash.Dash;
+    ACanvas.DrawLine(TPointF.Create(Plot.Left, LimitY), TPointF.Create(Plot.Right, LimitY), 0.82);
+    UsedPct := 100 * FSnapshot.PeriodCost / FSnapshot.SpendingLimit;
+    LimitText := Format('Limit %s · %.0f%%', [FormatMoney(FSnapshot.SpendingLimit, FSnapshot.Currency), UsedPct]);
+    Text(ACanvas, TRectF.Create(Plot.Left + 4 * FScale, LimitY + 2 * FScale, Plot.Left + 254 * FScale,
+      LimitY + 21 * FScale), LimitText, 9, CWarning, True, TTextAlign.Leading);
+  end;
+
+  { Cumulative actual line, resetting at the configured billing boundary. }
+  TrendIndex := -1;
+  PreviousPeriodStart := 0;
+  HasPrevious := False;
+  ACanvas.Stroke.Color := CText;
+  ACanvas.Stroke.Thickness := Max(1.5, 2.2 * FScale);
+  ACanvas.Stroke.Dash := TStrokeDash.Solid;
+  for I := 0 to N - 1 do
+  begin
+    DayValue := Actual[I].Day;
+    PointPeriodStart := FSnapshot.PeriodStart;
+    while DayValue < PointPeriodStart do
+      PointPeriodStart := IncMonth(PointPeriodStart, -1);
+    while DayValue >= IncMonth(PointPeriodStart, 1) do
+      PointPeriodStart := IncMonth(PointPeriodStart, 1);
+    Running := 0;
+    for J := 0 to High(FSnapshot.DailyCosts) do
+      if (FSnapshot.DailyCosts[J].Day >= PointPeriodStart) and (FSnapshot.DailyCosts[J].Day <= DayValue)
+        and (FSnapshot.DailyCosts[J].Day < IncMonth(PointPeriodStart, 1))
+      then
+        Running := Running + FSnapshot.DailyCosts[J].Amount;
+    if (PreviousPeriodStart <> 0) and not SameDate(PointPeriodStart, PreviousPeriodStart) then
+      HasPrevious := False;
+    Point.X := Plot.Left + (I + 0.5) * CellWidth;
+    Point.Y := GraphBottom - GraphHeight * (Running / LineMax);
+    if HasPrevious then
+      ACanvas.DrawLine(PreviousPoint, Point, 1);
+    ACanvas.Fill.Color := CText;
+    ACanvas.FillEllipse(TRectF.Create(Point.X - 2.5 * FScale, Point.Y - 2.5 * FScale, Point.X + 2.5 * FScale, Point.Y + 2.5 * FScale), 1);
+    PreviousPoint := Point;
+    HasPrevious := True;
+    PreviousPeriodStart := PointPeriodStart;
+    if (TrendIndex < 0) and (DayValue >= FSnapshot.PeriodStart) then
+      TrendIndex := I;
+  end;
+
+  { Least-squares trend in the background. }
+  if TrendIndex >= 0 then
+  begin
+    TrendStart := FSnapshot.ForecastDailyRate * Max(0, DaysBetween(Actual[TrendIndex].Day, FSnapshot.PeriodStart));
+    TrendEnd := FSnapshot.ForecastDailyRate * Max(0, DaysBetween(Actual[N - 1].Day, FSnapshot.PeriodStart));
+    ACanvas.Stroke.Color := CGreen;
+    ACanvas.Stroke.Thickness := Max(1, 1.3 * FScale);
+    ACanvas.Stroke.Dash := TStrokeDash.Dash;
+    ACanvas.DrawLine(TPointF.Create(Plot.Left + (TrendIndex + 0.5) * CellWidth, GraphBottom - GraphHeight * TrendStart / LineMax),
+      TPointF.Create(Plot.Left + ActualWidth - CellWidth * 0.5, GraphBottom - GraphHeight * TrendEnd / LineMax), 0.48);
+  end;
+
+  { Four compact future slots, each representing one week. }
+  FirstForecast := True;
+  NewPeriodSeen := False;
+  ACanvas.Stroke.Color := CLime;
+  ACanvas.Stroke.Thickness := Max(1.5, 2 * FScale);
+  ACanvas.Stroke.Dash := TStrokeDash.Dot;
+  for I := 0 to High(FSnapshot.Forecast) do
+  begin
+    X := Plot.Left + ActualWidth + ForecastWidth * (I + 0.5) / Max(1, Length(FSnapshot.Forecast));
+    Y := GraphBottom - GraphHeight *
+      (FSnapshot.Forecast[I].Cumulative / LineMax);
+    Point := TPointF.Create(X, Y);
+    if FSnapshot.Forecast[I].StartsNewPeriod and not NewPeriodSeen then
+    begin
+      NewPeriodSeen := True;
+      ACanvas.Stroke.Color := CFaint;
+      ACanvas.DrawLine(TPointF.Create(X - ForecastWidth * 0.08, Plot.Top), TPointF.Create(X - ForecastWidth * 0.08, Plot.Bottom - 25 * FScale), 0.8);
+      Text(ACanvas, TRectF.Create(X - 80 * FScale, Plot.Top + 22 * FScale, X + 80 * FScale, Plot.Top + 42 * FScale), 'Abrechnung → 0',
+        8, CMuted, False, TTextAlign.Center);
+      ACanvas.Stroke.Color := CLime;
+      FirstForecast := True;
     end;
-  finally
-    Actual.Free;
+    if FirstForecast then
+    begin
+      if not FSnapshot.Forecast[I].StartsNewPeriod and HasPrevious then
+        ACanvas.DrawLine(PreviousPoint, Point, 1);
+      FirstForecast := False;
+    end
+    else
+      ACanvas.DrawLine(PreviousPoint, Point, 1);
+    ACanvas.Fill.Color := CLime;
+    ACanvas.FillEllipse(TRectF.Create(X - 4 * FScale, Y - 4 * FScale, X + 4 * FScale, Y + 4 * FScale), 1);
+    Text(ACanvas, TRectF.Create(X - ForecastWidth * 0.12, Plot.Top + 3 * FScale, X + ForecastWidth * 0.12,
+      Plot.Top + 21 * FScale), FormatMoney(FSnapshot.Forecast[I].Cumulative, FSnapshot.Currency), 8, CLime, True, TTextAlign.Center);
+    Text(ACanvas, TRectF.Create(X - ForecastWidth * 0.12, Plot.Bottom - 22 * FScale, X + ForecastWidth * 0.12, Plot.Bottom),
+      '+' + IntToStr((I + 1) * 7) + ' T', 8, CMuted, False, TTextAlign.Center);
+    PreviousPoint := Point;
   end;
 end;
 
-procedure TDashboardRenderer.DrawModels(const ACanvas: TCanvas;
-  const ARect: TRectF);
+procedure TDashboardRenderer.DrawModels(const ACanvas: TCanvas; const ARect: TRectF);
 var
   I, ModelIndex, Count, Col, RowIndex: Integer;
   Gap, CellW, CellH, X, Y, ModelFontSize: Single;
   Card, NameRect, RequestRect, TokenRect: TRectF;
 
-  function FitModelName(const AValue: string; const AWidth,
-    AFontSize: Single): string;
+  function FitModelName(const AValue: string; const AWidth, AFontSize: Single): string;
   var
     LeftCount, RightCount: Integer;
   begin
@@ -520,8 +491,7 @@ var
     RightCount := Length(AValue) - LeftCount;
     while LeftCount + RightCount > 5 do
     begin
-      Result := Copy(AValue, 1, LeftCount) + '…' +
-        Copy(AValue, Length(AValue) - RightCount + 1, RightCount);
+      Result := Copy(AValue, 1, LeftCount) + '…' + Copy(AValue, Length(AValue) - RightCount + 1, RightCount);
       if ACanvas.TextWidth(Result) <= AWidth then
         Exit;
       if LeftCount > RightCount then
@@ -529,14 +499,12 @@ var
       else
         Dec(RightCount);
     end;
-    Result := Copy(AValue, 1, LeftCount) + '…' +
-      Copy(AValue, Length(AValue) - RightCount + 1, RightCount);
+    Result := Copy(AValue, 1, LeftCount) + '…' + Copy(AValue, Length(AValue) - RightCount + 1, RightCount);
   end;
 
 begin
   Box(ACanvas, ARect, CPanel, CBorder);
-  Text(ACanvas, TRectF.Create(ARect.Left + 15 * FScale, ARect.Top + 7 * FScale,
-    ARect.Right - 12 * FScale, ARect.Top + 36 * FScale),
+  Text(ACanvas, TRectF.Create(ARect.Left + 15 * FScale, ARect.Top + 7 * FScale, ARect.Right - 12 * FScale, ARect.Top + 36 * FScale),
     'Top API-Modelle · letzte 7 Tage', 15, CText, True);
   Count := Min(5, Length(FSnapshot.Models));
   Gap := 7 * FScale;
@@ -570,12 +538,9 @@ begin
 
     if I = 0 then
     begin
-      Text(ACanvas, NameRect, 'Modell', 9, CMuted, True,
-        TTextAlign.Center);
-      Text(ACanvas, RequestRect, 'Anfragen', 9, CMuted, False,
-        TTextAlign.Center);
-      Text(ACanvas, TokenRect, 'Tokens', 9, CMuted, False,
-        TTextAlign.Center);
+      Text(ACanvas, NameRect, 'Modell', 9, CMuted, True, TTextAlign.Center);
+      Text(ACanvas, RequestRect, 'Anfragen', 9, CMuted, False, TTextAlign.Center);
+      Text(ACanvas, TokenRect, 'Tokens', 9, CMuted, False, TTextAlign.Center);
       Continue;
     end;
 
@@ -586,23 +551,16 @@ begin
         ModelFontSize := 12
       else
         ModelFontSize := 13.5;
-      Text(ACanvas, NameRect, FitModelName(FSnapshot.Models[ModelIndex].Model,
-        NameRect.Width, ModelFontSize), ModelFontSize, CText, True,
-        TTextAlign.Center);
-      Text(ACanvas, RequestRect,
-        CompactNumber(FSnapshot.Models[ModelIndex].Requests), 25.2, CBlue,
-        True, TTextAlign.Center);
-      Text(ACanvas, TokenRect,
-        CompactNumber(FSnapshot.Models[ModelIndex].Tokens), 21, CLime,
-        True, TTextAlign.Center);
+      Text(ACanvas, NameRect, FitModelName(FSnapshot.Models[ModelIndex].Model, NameRect.Width, ModelFontSize), ModelFontSize, CText, True, TTextAlign.Center);
+      Text(ACanvas, RequestRect, CompactNumber(FSnapshot.Models[ModelIndex].Requests), 25.2, CBlue, True, TTextAlign.Center);
+      Text(ACanvas, TokenRect, CompactNumber(FSnapshot.Models[ModelIndex].Tokens), 21, CLime, True, TTextAlign.Center);
     end
     else
       Text(ACanvas, Card, '–', 13, CFaint, False, TTextAlign.Center);
   end;
 end;
 
-procedure TDashboardRenderer.DrawServices(const ACanvas: TCanvas;
-  const ARect: TRectF);
+procedure TDashboardRenderer.DrawServices(const ACanvas: TCanvas; const ARect: TRectF);
 var
   I, Count, Col, RowIndex, Cols, Rows: Integer;
   Gap, CellW, CellH, X, Y, ValueFontSize, MeasuredWidth: Single;
@@ -610,14 +568,11 @@ var
   ValueText, Detail: string;
 begin
   Box(ACanvas, ARect, CPanel, CBorder);
-  Text(ACanvas, TRectF.Create(ARect.Left + 15 * FScale, ARect.Top + 7 * FScale,
-    ARect.Right - 12 * FScale, ARect.Top + 38 * FScale),
-    'Weitere API-Dienste', 15, CText, True);
+  Text(ACanvas, TRectF.Create(ARect.Left + 15 * FScale, ARect.Top + 7 * FScale, ARect.Right - 12 * FScale, ARect.Top + 38 * FScale), 'Weitere API-Dienste', 15, CText, True);
   Count := Length(FSnapshot.Services);
   if Count = 0 then
   begin
-    Text(ACanvas, RectInset(ARect, 15 * FScale, 45 * FScale),
-      'Noch keine Zusatzdaten', 11, CMuted, False, TTextAlign.Center);
+    Text(ACanvas, RectInset(ARect, 15 * FScale, 45 * FScale), 'Noch keine Zusatzdaten', 11, CMuted, False, TTextAlign.Center);
     Exit;
   end;
   Cols := 3;
@@ -633,16 +588,12 @@ begin
     Y := ARect.Top + 41 * FScale + RowIndex * (CellH + Gap);
     R := TRectF.Create(X, Y, X + CellW, Y + CellH);
     Box(ACanvas, R, TAlphaColor($FF081B14), CBorder, 9);
-    NameRect := TRectF.Create(R.Left + 10 * FScale, R.Top + 8 * FScale,
-      R.Right - 10 * FScale, R.Top + 36 * FScale);
-    ValueRect := TRectF.Create(R.Left + 10 * FScale, R.Top + 34 * FScale,
-      R.Right - 10 * FScale, R.Bottom - 28 * FScale);
-    DetailRect := TRectF.Create(R.Left + 10 * FScale, R.Bottom - 28 * FScale,
-      R.Right - 10 * FScale, R.Bottom - 6 * FScale);
+    NameRect := TRectF.Create(R.Left + 10 * FScale, R.Top + 8 * FScale, R.Right - 10 * FScale, R.Top + 36 * FScale);
+    ValueRect := TRectF.Create(R.Left + 10 * FScale, R.Top + 34 * FScale, R.Right - 10 * FScale, R.Bottom - 28 * FScale);
+    DetailRect := TRectF.Create(R.Left + 10 * FScale, R.Bottom - 28 * FScale, R.Right - 10 * FScale, R.Bottom - 6 * FScale);
     Text(ACanvas, NameRect, FSnapshot.Services[I].Name, 12, CMuted);
     if FSnapshot.Services[I].Available then
-      ValueText := CompactValue(FSnapshot.Services[I].Value,
-        FSnapshot.Services[I].UnitText)
+      ValueText := CompactValue(FSnapshot.Services[I].Value, FSnapshot.Services[I].UnitText)
     else
       ValueText := '–';
     ValueFontSize := 31;
@@ -659,8 +610,7 @@ begin
   end;
 end;
 
-procedure TDashboardRenderer.DrawLimits(const ACanvas: TCanvas;
-  const ARect: TRectF);
+procedure TDashboardRenderer.DrawLimits(const ACanvas: TCanvas; const ARect: TRectF);
 var
   Count, I, Cards: Integer;
   Gap, CardW, X, Pct: Single;
@@ -669,8 +619,7 @@ var
 begin
   Box(ACanvas, ARect, CBluePanel, CBlueBorder);
   Text(ACanvas, TRectF.Create(ARect.Left + 15 * FScale, ARect.Top + 5 * FScale,
-    ARect.Right - 12 * FScale, ARect.Top + 34 * FScale),
-    'Limits · Prozentverbrauch', 15, CText, True);
+    ARect.Right - 12 * FScale, ARect.Top + 34 * FScale), 'Limits · Prozentverbrauch', 15, CText, True);
   Count := Min(4, Length(FSnapshot.RateLimits));
   Cards := Max(1, Count + Ord(FSnapshot.SpendingLimit > 0));
   Cards := Min(4, Cards);
@@ -680,46 +629,36 @@ begin
   if (FSnapshot.SpendingLimit > 0) and (I < Cards) then
   begin
     X := ARect.Left + 15 * FScale;
-    R := TRectF.Create(X, ARect.Top + 38 * FScale, X + CardW,
-      ARect.Bottom - 10 * FScale);
+    R := TRectF.Create(X, ARect.Top + 38 * FScale, X + CardW, ARect.Bottom - 10 * FScale);
     Box(ACanvas, R, TAlphaColor($FF091D25), CBlueBorder, 10);
     Pct := Clamp(100 * FSnapshot.PeriodCost / FSnapshot.SpendingLimit, 0, 100);
-    Text(ACanvas, TRectF.Create(R.Left + 10 * FScale, R.Top + 5 * FScale,
-      R.Right - 55 * FScale, R.Top + 27 * FScale), 'API-Ausgaben', 9, CText, True);
-    Text(ACanvas, TRectF.Create(R.Right - 55 * FScale, R.Top + 5 * FScale,
-      R.Right - 9 * FScale, R.Top + 27 * FScale), FormatFloat('0', Pct) + '%',
-      15, LimitColor(Pct), True, TTextAlign.Trailing);
-    Track := TRectF.Create(R.Left + 10 * FScale, R.Top + 34 * FScale,
-      R.Right - 10 * FScale, R.Top + 42 * FScale);
+    Text(ACanvas, TRectF.Create(R.Left + 10 * FScale, R.Top + 5 * FScale, R.Right - 55 * FScale, R.Top + 27 * FScale), 'API-Ausgaben', 9, CText, True);
+    Text(ACanvas, TRectF.Create(R.Right - 55 * FScale, R.Top + 5 * FScale, R.Right - 9 * FScale, R.Top + 27 * FScale), 
+      FormatFloat('0', Pct) + '%', 15, LimitColor(Pct), True, TTextAlign.Trailing);
+    Track := TRectF.Create(R.Left + 10 * FScale, R.Top + 34 * FScale, R.Right - 10 * FScale, R.Top + 42 * FScale);
     ACanvas.Fill.Color := TAlphaColor($FF1C4355);
     ACanvas.FillRect(Track, 4 * FScale, 4 * FScale, AllCorners, 1);
     Fill := Track;
     Fill.Right := Fill.Left + Fill.Width * Pct / 100;
     ACanvas.Fill.Color := LimitColor(Pct);
     ACanvas.FillRect(Fill, 4 * FScale, 4 * FScale, AllCorners, 1);
-    Text(ACanvas, TRectF.Create(R.Left + 10 * FScale, R.Top + 45 * FScale,
-      R.Right - 10 * FScale, R.Bottom - 3 * FScale),
-      FormatMoney(FSnapshot.PeriodCost, FSnapshot.Currency) + ' von ' +
-      FormatMoney(FSnapshot.SpendingLimit, FSnapshot.Currency), 8, CMuted);
+    Text(ACanvas, TRectF.Create(R.Left + 10 * FScale, R.Top + 45 * FScale, R.Right - 10 * FScale, R.Bottom - 3 * FScale),
+      FormatMoney(FSnapshot.PeriodCost, FSnapshot.Currency) + ' von ' + FormatMoney(FSnapshot.SpendingLimit, FSnapshot.Currency), 8, CMuted);
     Inc(I);
   end;
   while (I < Cards) and (I - Ord(FSnapshot.SpendingLimit > 0) < Count) do
   begin
     X := ARect.Left + 15 * FScale + I * (CardW + Gap);
-    R := TRectF.Create(X, ARect.Top + 38 * FScale, X + CardW,
-      ARect.Bottom - 10 * FScale);
+    R := TRectF.Create(X, ARect.Top + 38 * FScale, X + CardW, ARect.Bottom - 10 * FScale);
     Box(ACanvas, R, TAlphaColor($FF091D25), CBlueBorder, 10);
     with FSnapshot.RateLimits[I - Ord(FSnapshot.SpendingLimit > 0)] do
     begin
       Pct := Clamp(UsedPercent, 0, 100);
       NameText := Name;
-      Text(ACanvas, TRectF.Create(R.Left + 10 * FScale, R.Top + 5 * FScale,
-        R.Right - 55 * FScale, R.Top + 27 * FScale), NameText, 9, CText, True);
-      Text(ACanvas, TRectF.Create(R.Right - 55 * FScale, R.Top + 5 * FScale,
-        R.Right - 9 * FScale, R.Top + 27 * FScale), FormatFloat('0', Pct) + '%',
+      Text(ACanvas, TRectF.Create(R.Left + 10 * FScale, R.Top + 5 * FScale, R.Right - 55 * FScale, R.Top + 27 * FScale), NameText, 9, CText, True);
+      Text(ACanvas, TRectF.Create(R.Right - 55 * FScale, R.Top + 5 * FScale, R.Right - 9 * FScale, R.Top + 27 * FScale), FormatFloat('0', Pct) + '%',
         15, LimitColor(Pct), True, TTextAlign.Trailing);
-      Track := TRectF.Create(R.Left + 10 * FScale, R.Top + 34 * FScale,
-        R.Right - 10 * FScale, R.Top + 42 * FScale);
+      Track := TRectF.Create(R.Left + 10 * FScale, R.Top + 34 * FScale, R.Right - 10 * FScale, R.Top + 42 * FScale);
       ACanvas.Fill.Color := TAlphaColor($FF1C4355);
       ACanvas.FillRect(Track, 4 * FScale, 4 * FScale, AllCorners, 1);
       Fill := Track;
@@ -730,22 +669,17 @@ begin
         ResetText := WindowName + ' · Reset ' + FormatDateTime('dd.mm. hh:nn', ResetsAt)
       else
         ResetText := WindowName;
-      Text(ACanvas, TRectF.Create(R.Left + 10 * FScale, R.Top + 45 * FScale,
-        R.Right - 10 * FScale, R.Bottom - 3 * FScale), ResetText, 8, CMuted);
+      Text(ACanvas, TRectF.Create(R.Left + 10 * FScale, R.Top + 45 * FScale, R.Right - 10 * FScale, R.Bottom - 3 * FScale), ResetText, 8, CMuted);
     end;
     Inc(I);
   end;
   if Cards = 1 then
     if (Count = 0) and (FSnapshot.SpendingLimit <= 0) then
-      Text(ACanvas, TRectF.Create(ARect.Left + 15 * FScale,
-        ARect.Top + 38 * FScale, ARect.Right - 15 * FScale,
-        ARect.Bottom - 10 * FScale),
-        'Kein Limit geliefert. Ein Budget kann in den Einstellungen hinterlegt werden.',
-        10, CMuted, False, TTextAlign.Center);
+      Text(ACanvas, TRectF.Create(ARect.Left + 15 * FScale, ARect.Top + 38 * FScale, ARect.Right - 15 * FScale, ARect.Bottom - 10 * FScale),
+        'Kein Limit geliefert. Ein Budget kann in den Einstellungen hinterlegt werden.', 10, CMuted, False, TTextAlign.Center);
 end;
 
-procedure TDashboardRenderer.DrawCodex(const ACanvas: TCanvas;
-  const ARect: TRectF);
+procedure TDashboardRenderer.DrawCodex(const ACanvas: TCanvas;  const ARect: TRectF);
 var
   Gap, W: Single;
   TodayDetail: string;
@@ -830,20 +764,14 @@ begin
   Top := ARect.Top + 15 * FScale + HeaderH + Gap;
   KpiW := (ARect.Width - 2 * Margin - 3 * Gap) / 4;
   for I := 0 to 3 do
-    KpiRects[I] := TRectF.Create(ARect.Left + Margin + I * (KpiW + Gap), Top,
-      ARect.Left + Margin + I * (KpiW + Gap) + KpiW, Top + KpiH);
-  DrawKpi(ACanvas, KpiRects[0], 'Kosten · letzte 30 Tage',
-    FormatMoney(FSnapshot.Cost30Days, FSnapshot.Currency), 'alle Projekte der Organisation', True);
+    KpiRects[I] := TRectF.Create(ARect.Left + Margin + I * (KpiW + Gap), Top, ARect.Left + Margin + I * (KpiW + Gap) + KpiW, Top + KpiH);
+  DrawKpi(ACanvas, KpiRects[0], 'Kosten · letzte 30 Tage', FormatMoney(FSnapshot.Cost30Days, FSnapshot.Currency), 'alle Projekte der Organisation', True);
   if FSnapshot.CostTodayAvailable then
-    DrawKpi(ACanvas, KpiRects[1], 'Kosten · heute (UTC)',
-      FormatMoney(FSnapshot.CostToday, FSnapshot.Currency), 'Kosten können zeitverzögert eintreffen')
+    DrawKpi(ACanvas, KpiRects[1], 'Kosten · heute (UTC)', FormatMoney(FSnapshot.CostToday, FSnapshot.Currency), 'Kosten können zeitverzögert eintreffen')
   else
-    DrawKpi(ACanvas, KpiRects[1], 'Kosten · heute (UTC)', '–',
-      'Heute noch keine Kosten gemeldet');
-  DrawKpi(ACanvas, KpiRects[2], 'Anfragen · letzte 7 Tage',
-    CompactNumber(FSnapshot.Requests7Days), CompactNumber(FSnapshot.RequestsToday) + ' heute');
-  DrawKpi(ACanvas, KpiRects[3], 'Tokens · letzte 7 Tage',
-    CompactNumber(FSnapshot.Tokens7Days), CompactNumber(FSnapshot.TokensToday) + ' heute');
+    DrawKpi(ACanvas, KpiRects[1], 'Kosten · heute (UTC)', '–', 'Heute noch keine Kosten gemeldet');
+  DrawKpi(ACanvas, KpiRects[2], 'Anfragen · letzte 7 Tage', CompactNumber(FSnapshot.Requests7Days), CompactNumber(FSnapshot.RequestsToday) + ' heute');
+  DrawKpi(ACanvas, KpiRects[3], 'Tokens · letzte 7 Tage', CompactNumber(FSnapshot.Tokens7Days), CompactNumber(FSnapshot.TokensToday) + ' heute');
 
   ContentTop := Top + KpiH + Gap;
   ContentBottom := ARect.Bottom - Margin - FooterH;
@@ -851,33 +779,23 @@ begin
   SideW := ARect.Width - 2 * Margin - Gap - ColLeftW;
   SideTop := ContentTop;
   ModelH := (ContentBottom - ContentTop) * 0.36;
-  DrawChart(ACanvas, TRectF.Create(ARect.Left + Margin, ContentTop,
-    ARect.Left + Margin + ColLeftW, ContentTop + (ContentBottom - ContentTop) * 0.61));
-  DrawLimits(ACanvas, TRectF.Create(ARect.Left + Margin,
-    ContentTop + (ContentBottom - ContentTop) * 0.61 + Gap,
-    ARect.Left + Margin + ColLeftW,
-    ContentTop + (ContentBottom - ContentTop) * 0.78));
-  DrawCodex(ACanvas, TRectF.Create(ARect.Left + Margin,
-    ContentTop + (ContentBottom - ContentTop) * 0.78 + Gap,
+  DrawChart(ACanvas, TRectF.Create(ARect.Left + Margin, ContentTop, ARect.Left + Margin + ColLeftW, ContentTop + (ContentBottom - ContentTop) * 0.61));
+  DrawLimits(ACanvas, TRectF.Create(ARect.Left + Margin, ContentTop + (ContentBottom - ContentTop) * 0.61 + Gap,
+    ARect.Left + Margin + ColLeftW, ContentTop + (ContentBottom - ContentTop) * 0.78));
+  DrawCodex(ACanvas, TRectF.Create(ARect.Left + Margin, ContentTop + (ContentBottom - ContentTop) * 0.78 + Gap,
     ARect.Left + Margin + ColLeftW, ContentBottom));
   Left := ARect.Left + Margin + ColLeftW + Gap;
   DrawModels(ACanvas, TRectF.Create(Left, SideTop, Left + SideW, SideTop + ModelH));
-  DrawServices(ACanvas, TRectF.Create(Left, SideTop + ModelH + Gap,
-    Left + SideW, ContentBottom));
+  DrawServices(ACanvas, TRectF.Create(Left, SideTop + ModelH + Gap, Left + SideW, ContentBottom));
   if FSnapshot.SpendingLimit > 0 then
     LimitPct := FormatFloat('0', 100 * FSnapshot.PeriodCost / FSnapshot.SpendingLimit) + '%'
   else
     LimitPct := 'kein Budget';
-  Detail := FSnapshot.SourceText + ' · Periode ' +
-    FormatDateTime('dd.mm.', FSnapshot.PeriodStart) + '–' +
-    FormatDateTime('dd.mm.yyyy', FSnapshot.PeriodEnd - 1) + ' · ' + LimitPct;
-  Text(ACanvas, TRectF.Create(ARect.Left + Margin, ContentBottom + 2 * FScale,
-    ARect.Right - Margin, ARect.Bottom), Detail, 8, CMuted, False,
-    TTextAlign.Leading);
+  Detail := FSnapshot.SourceText + ' · Periode ' + FormatDateTime('dd.mm.', FSnapshot.PeriodStart) + '–' + FormatDateTime('dd.mm.yyyy', FSnapshot.PeriodEnd - 1) + ' · ' + LimitPct;
+  Text(ACanvas, TRectF.Create(ARect.Left + Margin, ContentBottom + 2 * FScale, ARect.Right - Margin, ARect.Bottom), Detail, 8, CMuted, False, TTextAlign.Leading);
 end;
 
-procedure TDashboardRenderer.RenderCompanion(const ACanvas: TCanvas;
-  const ARect: TRectF; const ARevealed: Boolean; const ASecondsRemaining: Integer);
+procedure TDashboardRenderer.RenderCompanion(const ACanvas: TCanvas; const ARect: TRectF; const ARevealed: Boolean; const ASecondsRemaining: Integer);
 var
   Center: TRectF;
 begin
@@ -886,27 +804,16 @@ begin
   if not ARevealed then
     Exit;
   FScale := Clamp(Min(ARect.Width / 1000, ARect.Height / 700), 0.7, 1.4);
-  Center := TRectF.Create(ARect.Left + ARect.Width * 0.16,
-    ARect.Top + ARect.Height * 0.2, ARect.Right - ARect.Width * 0.16,
-    ARect.Bottom - ARect.Height * 0.2);
+  Center := TRectF.Create(ARect.Left + ARect.Width * 0.16, ARect.Top + ARect.Height * 0.2, ARect.Right - ARect.Width * 0.16, ARect.Bottom - ARect.Height * 0.2);
   Box(ACanvas, Center, CPanel, CBorder, 18);
-  Text(ACanvas, TRectF.Create(Center.Left + 24 * FScale, Center.Top + 20 * FScale,
-    Center.Right - 24 * FScale, Center.Top + 72 * FScale),
-    'Dashboard läuft auf dem externen Monitor', 22, CText, True,
-    TTextAlign.Center);
-  Text(ACanvas, TRectF.Create(Center.Left + 24 * FScale, Center.Top + 84 * FScale,
-    Center.Right - 24 * FScale, Center.Top + 132 * FScale),
-    FSnapshot.StatusText + ' · ' + FormatDateTime('dd.mm.yyyy hh:nn:ss',
-    FSnapshot.LastUpdated), 13, CMuted, False, TTextAlign.Center);
-  Text(ACanvas, TRectF.Create(Center.Left + 24 * FScale, Center.Top + 140 * FScale,
-    Center.Right - 24 * FScale, Center.Top + 200 * FScale),
-    'Dieser integrierte Statusbildschirm wird nach ' +
-    IntToStr(Max(0, ASecondsRemaining div 60)) + ' Minuten wieder schwarz.',
-    12, CMuted, False, TTextAlign.Center);
-  Text(ACanvas, TRectF.Create(Center.Left + 24 * FScale, Center.Bottom - 85 * FScale,
-    Center.Right - 24 * FScale, Center.Bottom - 25 * FScale),
-    'Erneut tippen, um die Einstellungen zu öffnen.', 11, CBlue, False,
-    TTextAlign.Center);
+  Text(ACanvas, TRectF.Create(Center.Left + 24 * FScale, Center.Top + 20 * FScale, Center.Right - 24 * FScale, Center.Top + 72 * FScale),
+    'Dashboard läuft auf dem externen Monitor', 22, CText, True, TTextAlign.Center);
+  Text(ACanvas, TRectF.Create(Center.Left + 24 * FScale, Center.Top + 84 * FScale, Center.Right - 24 * FScale, Center.Top + 132 * FScale),
+    FSnapshot.StatusText + ' · ' + FormatDateTime('dd.mm.yyyy hh:nn:ss', FSnapshot.LastUpdated), 13, CMuted, False, TTextAlign.Center);
+  Text(ACanvas, TRectF.Create(Center.Left + 24 * FScale, Center.Top + 140 * FScale, Center.Right - 24 * FScale, Center.Top + 200 * FScale),
+    'Dieser integrierte Statusbildschirm wird nach ' + IntToStr(Max(0, ASecondsRemaining div 60)) + ' Minuten wieder schwarz.', 12, CMuted, False, TTextAlign.Center);
+  Text(ACanvas, TRectF.Create(Center.Left + 24 * FScale, Center.Bottom - 85 * FScale, Center.Right - 24 * FScale, Center.Bottom - 25 * FScale),
+    'Erneut tippen, um die Einstellungen zu öffnen.', 11, CBlue, False, TTextAlign.Center);
 end;
 
 end.

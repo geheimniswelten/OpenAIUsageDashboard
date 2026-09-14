@@ -14,6 +14,24 @@ type
     HasCostData: Boolean;
   end;
 
+  TDailyModelUsage = record
+    Day: TDateTime;
+    Requests: Int64;
+    Tokens: Int64;
+    HasRequestData: Boolean;
+    HasTokenData: Boolean;
+  end;
+
+  TDailyChartDay = record
+    Day: TDateTime;
+    Amount: Double;
+    HasCostData: Boolean;
+    Requests: Int64;
+    Tokens: Int64;
+    HasRequestData: Boolean;
+    HasTokenData: Boolean;
+  end;
+
   TModelUsage = record
     Model: string;
     Requests: Int64;
@@ -64,6 +82,7 @@ type
     StatusText: string;
     SourceText: string;
     DailyCosts: TArray<TDailyCost>;
+    DailyModelUsage: TArray<TDailyModelUsage>;
     Models: TArray<TModelUsage>;
     Services: TArray<TServiceUsage>;
     RateLimits: TArray<TRateLimitWindow>;
@@ -84,6 +103,7 @@ type
     procedure Assign(const ASource: TUsageSnapshot);
     procedure Recalculate(const AAsOfUtc: TDateTime = 0);
     procedure MakeDemo;
+    function GetDailyChartDays(const ACount: Integer = 14): TArray<TDailyChartDay>;
     function ToJson: string;
     procedure FromJson(const AJson: string);
   end;
@@ -91,6 +111,7 @@ type
 function JsonString(const AObject: TJSONObject; const AName, ADefault: string): string;
 function JsonFloat(const AObject: TJSONObject; const AName: string; const ADefault: Double = 0): Double;
 function JsonInt64(const AObject: TJSONObject; const AName: string; const ADefault: Int64 = 0): Int64;
+function TryJsonInt64(const AObject: TJSONObject; const AName: string; out AValue: Int64): Boolean;
 function JsonBool(const AObject: TJSONObject; const AName: string; const ADefault: Boolean = False): Boolean;
 
 implementation
@@ -131,16 +152,34 @@ end;
 
 function JsonInt64(const AObject: TJSONObject; const AName: string; const ADefault: Int64): Int64;
 var
+  Value: Int64;
   V: TJSONValue;
 begin
+  if TryJsonInt64(AObject, AName, Value) then
+    Exit(Value);
   Result := ADefault;
+  { Retain the legacy numeric conversion for existing snapshot fields, while normal integer JSON values take the exact Int64 path above. }
+  if AObject <> nil then
+  begin
+    V := AObject.GetValue(AName);
+    if V is TJSONNumber then
+      Result := Trunc(TJSONNumber(V).AsDouble);
+  end;
+end;
+
+function TryJsonInt64(const AObject: TJSONObject; const AName: string;
+  out AValue: Int64): Boolean;
+var
+  V: TJSONValue;
+begin
+  Result := False;
+  AValue := 0;
   if AObject = nil then
     Exit;
   V := AObject.GetValue(AName);
-  if V is TJSONNumber then
-    Result := Trunc(TJSONNumber(V).AsDouble)
-  else if V <> nil then
-    TryStrToInt64(V.Value, Result);
+  { Parse the integer text directly: a Double loses precision above 2^53. }
+  if (V is TJSONNumber) or (V is TJSONString) then
+    Result := TryStrToInt64(V.Value, AValue);
 end;
 
 function JsonBool(const AObject: TJSONObject; const AName: string; const ADefault: Boolean): Boolean;
@@ -224,6 +263,7 @@ begin
   StatusText := 'Noch keine Daten';
   SourceText := '';
   DailyCosts := nil;
+  DailyModelUsage := nil;
   Models := nil;
   Services := nil;
   RateLimits := nil;
@@ -263,6 +303,7 @@ begin
   StatusText := ASource.StatusText;
   SourceText := ASource.SourceText;
   DailyCosts := Copy(ASource.DailyCosts);
+  DailyModelUsage := Copy(ASource.DailyModelUsage);
   Models := Copy(ASource.Models);
   Services := Copy(ASource.Services);
   RateLimits := Copy(ASource.RateLimits);
@@ -278,6 +319,40 @@ begin
   CodexTodayUsageAvailable := ASource.CodexTodayUsageAvailable;
   CodexRateLimitsAvailable := ASource.CodexRateLimitsAvailable;
   CodexError := ASource.CodexError;
+end;
+
+function TUsageSnapshot.GetDailyChartDays(const ACount: Integer): TArray<TDailyChartDay>;
+var
+  TodayValue, FirstDay: TDateTime;
+  I, Index: Integer;
+begin
+  Result := nil;
+  if (ACount <= 0) or ((Length(DailyCosts) = 0) and (Length(DailyModelUsage) = 0)) then
+    Exit;
+  if LastUpdated > 0 then
+    TodayValue := DateOf(TTimeZone.Local.ToUniversalTime(LastUpdated))
+  else
+    TodayValue := DateOf(TTimeZone.Local.ToUniversalTime(Now));
+  FirstDay := IncDay(TodayValue, 1 - ACount);
+  SetLength(Result, ACount);
+  for I := 0 to High(Result) do
+    Result[I].Day := IncDay(FirstDay, I);
+  for I := 0 to High(DailyCosts) do
+    if (DateOf(DailyCosts[I].Day) >= FirstDay) and (DateOf(DailyCosts[I].Day) <= TodayValue) then
+    begin
+      Index := Trunc(DailyCosts[I].Day) - Trunc(FirstDay);
+      Result[Index].Amount := Result[Index].Amount + DailyCosts[I].Amount;
+      Result[Index].HasCostData := Result[Index].HasCostData or DailyCosts[I].HasCostData or (DailyCosts[I].Amount <> 0);
+    end;
+  for I := 0 to High(DailyModelUsage) do
+    if (DateOf(DailyModelUsage[I].Day) >= FirstDay) and (DateOf(DailyModelUsage[I].Day) <= TodayValue) then
+    begin
+      Index := Trunc(DailyModelUsage[I].Day) - Trunc(FirstDay);
+      Inc(Result[Index].Requests, DailyModelUsage[I].Requests);
+      Inc(Result[Index].Tokens, DailyModelUsage[I].Tokens);
+      Result[Index].HasRequestData := Result[Index].HasRequestData or DailyModelUsage[I].HasRequestData;
+      Result[Index].HasTokenData := Result[Index].HasTokenData or DailyModelUsage[I].HasTokenData;
+    end;
 end;
 
 procedure TUsageSnapshot.Recalculate(const AAsOfUtc: TDateTime);
@@ -384,6 +459,7 @@ begin
   PeriodStart := StartOfTheMonth(UtcToday);
   PeriodEnd := IncMonth(PeriodStart, 1);
   SetLength(DailyCosts, 30);
+  SetLength(DailyModelUsage, Length(DailyCosts));
   for I := 0 to High(DailyCosts) do
   begin
     DailyCosts[I].Day := IncDay(UtcToday, I - High(DailyCosts));
@@ -392,7 +468,19 @@ begin
       DailyCosts[I].Amount := 0.05 + 0.03 * (I mod 3)
     else
       DailyCosts[I].Amount := 0.18 + 0.55 * Abs(Sin(I * 1.37));
+    DailyModelUsage[I].Day := DailyCosts[I].Day;
+    DailyModelUsage[I].Requests := 12 + Round(DailyCosts[I].Amount * 120);
+    DailyModelUsage[I].Tokens := DailyModelUsage[I].Requests * (1450 + I * 113);
+    DailyModelUsage[I].HasRequestData := True;
+    DailyModelUsage[I].HasTokenData := True;
+    if I >= Length(DailyModelUsage) - 7 then
+    begin
+      Inc(Requests7Days, DailyModelUsage[I].Requests);
+      Inc(Tokens7Days, DailyModelUsage[I].Tokens);
+    end;
   end;
+  RequestsToday := DailyModelUsage[High(DailyModelUsage)].Requests;
+  TokensToday := DailyModelUsage[High(DailyModelUsage)].Tokens;
   SetLength(Models, Length(DemoModels));
   for I := 0 to High(Models) do
   begin
@@ -400,10 +488,6 @@ begin
     Models[I].Requests := 170 - I * 31;
     Models[I].Tokens := 2900000 div (I + 1);
   end;
-  Requests7Days := 198;
-  RequestsToday := 82;
-  Tokens7Days := 2900000;
-  TokensToday := 1500000;
   SetLength(Services, 6);
   Services[0].Name := 'Bilder';
   Services[0].UnitText := '';
@@ -497,6 +581,18 @@ begin
       AddCalendarDay(Item, 'day', DailyCosts[I].Day);
       Item.AddPair('amount', TJSONNumber.Create(DailyCosts[I].Amount));
       Item.AddPair('hasCostData', TJSONBool.Create(DailyCosts[I].HasCostData));
+      A.AddElement(Item);
+    end;
+    A := TJSONArray.Create;
+    Root.AddPair('dailyModelUsage', A);
+    for I := 0 to High(DailyModelUsage) do
+    begin
+      Item := TJSONObject.Create;
+      AddCalendarDay(Item, 'day', DailyModelUsage[I].Day);
+      Item.AddPair('requests', TJSONNumber.Create(DailyModelUsage[I].Requests));
+      Item.AddPair('tokens', TJSONNumber.Create(DailyModelUsage[I].Tokens));
+      Item.AddPair('hasRequestData', TJSONBool.Create(DailyModelUsage[I].HasRequestData));
+      Item.AddPair('hasTokenData', TJSONBool.Create(DailyModelUsage[I].HasTokenData));
       A.AddElement(Item);
     end;
     A := TJSONArray.Create;
@@ -603,6 +699,20 @@ begin
         DailyCosts[I].Day := ReadCalendarDay(Item, 'day');
         DailyCosts[I].Amount := JsonFloat(Item, 'amount');
         DailyCosts[I].HasCostData := JsonBool(Item, 'hasCostData', DailyCosts[I].Amount <> 0);
+      end;
+    end;
+    A := Root.GetValue('dailyModelUsage') as TJSONArray;
+    if A <> nil then
+    begin
+      SetLength(DailyModelUsage, A.Count);
+      for I := 0 to A.Count - 1 do
+      begin
+        Item := A.Items[I] as TJSONObject;
+        DailyModelUsage[I].Day := ReadCalendarDay(Item, 'day');
+        DailyModelUsage[I].Requests := JsonInt64(Item, 'requests');
+        DailyModelUsage[I].Tokens := JsonInt64(Item, 'tokens');
+        DailyModelUsage[I].HasRequestData := JsonBool(Item, 'hasRequestData');
+        DailyModelUsage[I].HasTokenData := JsonBool(Item, 'hasTokenData');
       end;
     end;
     A := Root.GetValue('models') as TJSONArray;

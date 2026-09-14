@@ -288,45 +288,100 @@ var
   Models: TObjectDictionary<string, TModelAccumulator>;
   Acc: TModelAccumulator;
   Pair: TPair<string, TModelAccumulator>;
+  Days: TList<TDailyModelUsage>;
+  Daily: TDailyModelUsage;
   I, J, K: Integer;
   DayValue, UtcToday: TDateTime;
   ModelName: string;
-  Requests, Tokens: Int64;
+  Requests, Tokens, InputTokens, OutputTokens: Int64;
+  HasRequests, HasInput, HasOutput, HasTokens: Boolean;
   Temp: TModelUsage;
 begin
   Buckets := TJSONArray(ABuckets);
   Models := TObjectDictionary<string, TModelAccumulator>.Create([doOwnsValues]);
+  Days := TList<TDailyModelUsage>.Create;
   try
     UtcToday := DateOf(AUtcToday);
+    ASnapshot.Requests7Days := 0;
+    ASnapshot.Tokens7Days := 0;
+    ASnapshot.RequestsToday := 0;
+    ASnapshot.TokensToday := 0;
     for I := 0 to Buckets.Count - 1 do
     begin
       Bucket := Buckets.Items[I] as TJSONObject;
       DayValue := DateOf(UnixToDateTime(JsonInt64(Bucket, 'start_time'), True));
-      Results := Bucket.GetValue('results') as TJSONArray;
-      if Results = nil then
+      if (DayValue < UtcToday - 13) or (DayValue > UtcToday) then
         Continue;
-      for J := 0 to Results.Count - 1 do
+      Daily := Default(TDailyModelUsage);
+      Daily.Day := DayValue;
+      Results := Bucket.GetValue('results') as TJSONArray;
+      if Results <> nil then
+        for J := 0 to Results.Count - 1 do
+        begin
+          Item := Results.Items[J] as TJSONObject;
+          HasRequests := TryJsonInt64(Item, 'num_model_requests', Requests);
+          HasInput := TryJsonInt64(Item, 'input_tokens', InputTokens);
+          HasOutput := TryJsonInt64(Item, 'output_tokens', OutputTokens);
+          HasRequests := HasRequests and (Requests >= 0);
+          HasInput := HasInput and (InputTokens >= 0);
+          HasOutput := HasOutput and (OutputTokens >= 0);
+          if not HasRequests then
+            Requests := 0;
+          Tokens := 0;
+          HasTokens := False;
+          if HasInput and HasOutput then
+            HasTokens := InputTokens <= High(Int64) - OutputTokens;
+          if HasTokens then
+            Tokens := InputTokens + OutputTokens;
+          Inc(Daily.Requests, Requests);
+          Inc(Daily.Tokens, Tokens);
+          Daily.HasRequestData := Daily.HasRequestData or HasRequests;
+          Daily.HasTokenData := Daily.HasTokenData or HasTokens;
+
+          { The chart spans fourteen UTC days; cards and model ranking retain their existing seven-day scope. }
+          if DayValue < UtcToday - 6 then
+            Continue;
+          Inc(ASnapshot.Requests7Days, Requests);
+          Inc(ASnapshot.Tokens7Days, Tokens);
+          if SameDate(DayValue, UtcToday) then
+          begin
+            Inc(ASnapshot.RequestsToday, Requests);
+            Inc(ASnapshot.TokensToday, Tokens);
+          end;
+          ModelName := JsonString(Item, 'model', '(ohne Modellname)');
+          if not Models.TryGetValue(ModelName, Acc) then
+          begin
+            Acc := TModelAccumulator.Create;
+            Models.Add(ModelName, Acc);
+          end;
+          Inc(Acc.Requests, Requests);
+          Inc(Acc.Tokens, Tokens);
+        end;
+      { Pages/model groups may repeat a calendar day. Merge every bucket. }
+      K := 0;
+      while (K < Days.Count) and not SameDate(Days[K].Day, DayValue) do
+        Inc(K);
+      if K < Days.Count then
       begin
-        Item := Results.Items[J] as TJSONObject;
-        Requests := JsonInt64(Item, 'num_model_requests');
-        Tokens := JsonInt64(Item, 'input_tokens') + JsonInt64(Item, 'output_tokens');
-        ASnapshot.Requests7Days := ASnapshot.Requests7Days + Requests;
-        ASnapshot.Tokens7Days := ASnapshot.Tokens7Days + Tokens;
-        if SameDate(DayValue, UtcToday) then
-        begin
-          ASnapshot.RequestsToday := ASnapshot.RequestsToday + Requests;
-          ASnapshot.TokensToday := ASnapshot.TokensToday + Tokens;
-        end;
-        ModelName := JsonString(Item, 'model', '(ohne Modellname)');
-        if not Models.TryGetValue(ModelName, Acc) then
-        begin
-          Acc := TModelAccumulator.Create;
-          Models.Add(ModelName, Acc);
-        end;
-        Inc(Acc.Requests, Requests);
-        Inc(Acc.Tokens, Tokens);
-      end;
+        Inc(Daily.Requests, Days[K].Requests);
+        Inc(Daily.Tokens, Days[K].Tokens);
+        Daily.HasRequestData := Daily.HasRequestData or Days[K].HasRequestData;
+        Daily.HasTokenData := Daily.HasTokenData or Days[K].HasTokenData;
+        Days[K] := Daily;
+      end
+      else
+        Days.Add(Daily);
     end;
+    { Preserve chronological order even if the endpoint pages arrive unsorted. }
+    for I := 0 to Days.Count - 2 do
+      for K := I + 1 to Days.Count - 1 do
+        if Days[K].Day < Days[I].Day then
+        begin
+          Daily := Days[I];
+          Days[I] := Days[K];
+          Days[K] := Daily;
+        end;
+    ASnapshot.DailyModelUsage := Days.ToArray;
     SetLength(ASnapshot.Models, Models.Count);
     I := 0;
     for Pair in Models do
@@ -345,6 +400,7 @@ begin
           ASnapshot.Models[K] := Temp;
         end;
   finally
+    Days.Free;
     Models.Free;
   end;
 end;
@@ -463,8 +519,7 @@ begin
     ASnapshot.PeriodEnd := IncMonth(PeriodStart, 1);
     StartDate := Min(DateOf(UtcNow) - 29, PeriodStart);
     StartUnix := DateTimeToUnix(StartDate, True);
-    CostQuery := 'start_time=' + IntToStr(StartUnix) + '&bucket_width=1d&limit=31' +
-      '&end_time=' + IntToStr(DateTimeToUnix(UtcNow, True));
+    CostQuery := 'start_time=' + IntToStr(StartUnix) + '&bucket_width=1d&limit=31&end_time=' + IntToStr(DateTimeToUnix(UtcNow, True));
     Costs := RequestPages('/organization/costs', CostQuery);
     try
       ReadCosts(Costs, ASnapshot);
@@ -472,10 +527,8 @@ begin
       Costs.Free;
     end;
 
-    StartUnix := DateTimeToUnix(DateOf(UtcNow) - 6, True);
-    UsageQuery := 'start_time=' + IntToStr(StartUnix) +
-      '&bucket_width=1d&limit=7&group_by=model' +
-      '&end_time=' + IntToStr(DateTimeToUnix(UtcNow, True));
+    StartUnix := DateTimeToUnix(DateOf(UtcNow) - 13, True);
+    UsageQuery := 'start_time=' + IntToStr(StartUnix) + '&bucket_width=1d&limit=14&group_by=model&end_time=' + IntToStr(DateTimeToUnix(UtcNow, True));
     Completions := RequestPages('/organization/usage/completions', UsageQuery);
     try
       ReadCompletions(Completions, ASnapshot, UtcNow);
@@ -483,26 +536,17 @@ begin
       Completions.Free;
     end;
 
-    UsageQuery := 'start_time=' + IntToStr(StartUnix) + '&bucket_width=1d&limit=7' +
-      '&end_time=' + IntToStr(DateTimeToUnix(UtcNow, True));
-    ReadService('/organization/usage/images', 'Bilder', 'images', '',
-      'num_model_requests', UsageQuery, False, ASnapshot);
-    ReadService('/organization/usage/embeddings', 'Embeddings', 'input_tokens', 'Tokens',
-      'num_model_requests', UsageQuery, False, ASnapshot);
-    ReadService('/organization/usage/web_search_calls', 'Websuche', 'num_requests', '',
-      'num_model_requests', UsageQuery, False, ASnapshot);
-    ReadService('/organization/usage/file_search_calls', 'Dateisuche', 'num_requests', '',
-      '', UsageQuery, False, ASnapshot);
-    ReadService('/organization/usage/audio_transcriptions', 'Transkription', 'seconds', 'Sek.',
-      'num_model_requests', UsageQuery, False, ASnapshot);
-    ReadService('/organization/usage/audio_speeches', 'Sprachausgabe', 'characters', 'Zeichen',
-      'num_model_requests', UsageQuery, False, ASnapshot);
-    ReadService('/organization/usage/code_interpreter_sessions', 'Code Interpreter',
-      'num_sessions', 'Sitzungen', '', UsageQuery, False, ASnapshot);
-    ReadService('/organization/usage/vector_stores', 'Vector Stores', 'usage_bytes', 'B',
-      '', UsageQuery, True, ASnapshot);
-    ReadService('/organization/usage/moderations', 'Moderation', 'input_tokens', 'Tokens',
-      'num_model_requests', UsageQuery, False, ASnapshot);
+    StartUnix := DateTimeToUnix(DateOf(UtcNow) - 6, True);
+    UsageQuery := 'start_time=' + IntToStr(StartUnix) + '&bucket_width=1d&limit=7&end_time=' + IntToStr(DateTimeToUnix(UtcNow, True));
+    ReadService('/organization/usage/images', 'Bilder', 'images', '', 'num_model_requests', UsageQuery, False, ASnapshot);
+    ReadService('/organization/usage/embeddings', 'Embeddings', 'input_tokens', 'Tokens', 'num_model_requests', UsageQuery, False, ASnapshot);
+    ReadService('/organization/usage/web_search_calls', 'Websuche', 'num_requests', '', 'num_model_requests', UsageQuery, False, ASnapshot);
+    ReadService('/organization/usage/file_search_calls', 'Dateisuche', 'num_requests', '', '', UsageQuery, False, ASnapshot);
+    ReadService('/organization/usage/audio_transcriptions', 'Transkription', 'seconds', 'Sek.', 'num_model_requests', UsageQuery, False, ASnapshot);
+    ReadService('/organization/usage/audio_speeches', 'Sprachausgabe', 'characters', 'Zeichen', 'num_model_requests', UsageQuery, False, ASnapshot);
+    ReadService('/organization/usage/code_interpreter_sessions', 'Code Interpreter', 'num_sessions', 'Sitzungen', '', UsageQuery, False, ASnapshot);
+    ReadService('/organization/usage/vector_stores', 'Vector Stores', 'usage_bytes', 'B', '', UsageQuery, True, ASnapshot);
+    ReadService('/organization/usage/moderations', 'Moderation', 'input_tokens', 'Tokens', 'num_model_requests', UsageQuery, False, ASnapshot);
     TryReadSpendingLimit(ASnapshot);
     ASnapshot.LastUpdated := TTimeZone.Local.ToLocalTime(UtcNow);
     ASnapshot.StatusText := 'Aktuell';

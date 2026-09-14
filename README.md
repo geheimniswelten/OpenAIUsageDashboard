@@ -17,7 +17,9 @@ Browser werden zur Laufzeit nicht benötigt.
   die Zusatzdienste verwenden dieselbe Caption-/Wert-/Detail-Typografie wie die
   Codex-Kennzahlen
 - Ausgabenlimit mit Prozentbalken und Limitlinie im Kostendiagramm
-- 14 Tagesbalken; ausschließlich der Hintergrund von Wochenenden ist abgesetzt
+- 14 Kalendertage einschließlich heute (UTC): grüne Kostenbalken und schmale blaue
+  Balken für API-Modellanfragen mit eigener Skala und täglichen Zahlenwerten;
+  ausschließlich der Hintergrund von Wochenenden ist abgesetzt
 - kumulierter Ist-Verbrauch und kalenderbasierte Trendberechnung; der noch
   unvollständige heutige Tag wird aus der Prognosesteigung ausgeschlossen
 - vier kompakte Prognosepunkte für +7, +14, +21 und +28 Tage; der prognostizierte
@@ -103,6 +105,16 @@ Codex-Abfrage.
 API-Kosten, Tagesbuckets und Abrechnungsgrenzen werden konsistent in UTC
 ausgewertet. Liefert die API für heute noch keinen Kostenbetrag, steht dort
 `–` mit entsprechendem Hinweis. Kosten können später als Anfragen eintreffen.
+Das Tagesdiagramm zeigt deshalb zusätzlich die Anzahl der API-Modellanfragen.
+Die blauen Balken bleiben auch an Tagen ohne gemeldeten Kostenbetrag sichtbar.
+Beide Balkenreihen werden unabhängig skaliert; gleiche Höhe bedeutet keinen
+gleichen Geldwert. Fehlende Tageswerte erscheinen als `–`, ausdrücklich gemeldete
+Nullwerte als `0`. Die täglichen Modellanfragen und Tokens werden für 14 Tage
+abgerufen; die Sieben-Tage-Kennzahlen und Modellrangliste umfassen weiterhin nur
+die letzten sieben UTC-Kalendertage einschließlich heute. Die Codex-Nutzung aus
+dem ChatGPT-Abonnement ist in diesen API-Balken nicht enthalten.
+Für die neue Tagesansicht müssen Sammler und Viewer aktualisiert werden. Ältere
+Snapshots bleiben lesbar; ohne Tagesnutzung zeigen sie weiterhin die Kosten.
 Codex-Tokenstatistiken verwenden weiterhin den lokalen Kalendertag.
 Codex-Limitkarten benennen die tatsächlich gemeldete Fensterdauer, etwa `7 Tage`
 oder `5 Stunden`. Nur bei fehlender oder nichtpositiver Dauer bleibt die Beschriftung
@@ -231,10 +243,12 @@ OtherDisplayIdleMinutes=10
 - Alle gemeinsam genutzten Units einschließlich Android-Presentation-Code wurden
   mit dem Android64-Compiler übersetzt und zur ARM64-Shared-Library gelinkt.
 - `tests/Dashboard.Tests.dpr` prüft Prognose (inklusive Ausschluss des heutigen
-  Tages), JSON-Roundtrip und authentifizierten Snapshot-Transport.
+  Tages), JSON-Roundtrip, Tagesnutzung und authentifizierten Snapshot-Transport.
 - `tests/OpenAI.Tests.dpr` prüft ohne API-Aufruf UTC-Tages-/Monatsgrenzen,
   Anfragezeiträume, leere oder fehlende Kostenbuckets gegenüber gemeldeten Nullen
-  sowie Kalenderdaten beim Übertragen auf einen Viewer.
+  sowie Kalenderdaten beim Übertragen auf einen Viewer. Zusätzlich werden die
+  14-Tage-Modellabfrage bei unveränderten Sieben-Tage-Summen, Tagesaggregation
+  mehrerer Modelle, fehlende Werte und die Ansicht ohne heutigen Kostenbucket geprüft.
 - `tests/Codex.Tests.dpr` prüft ohne Serveraufruf Teilantworten, fehlende bzw.
   null-Werte, Tagesaggregation und den Rückgriff auf die Legacy-Limitantwort.
 - `tests/Secrets.Tests.dpr` prüft ohne Credential-Schreibzugriff den
