@@ -40,6 +40,9 @@ type
     {$ENDIF}
   protected
     {$IF Defined(MSWINDOWS)}
+    class function ResolveDashboardHome(const ALocalAppData: string): string; static;
+    class function BuildChildEnvironment(const AParentEntries: TArray<string>;
+      const ADashboardHome: string): UnicodeString; static;
     function FindLauncher(out APath: string): Boolean;
     procedure ApplyRateLimits(ASnapshot: TUsageSnapshot;
       const AJson: string);
@@ -112,6 +115,22 @@ end;
 
 {$IF Defined(MSWINDOWS)}
 
+procedure CodexDiagnostic(const AMessage: string);
+var
+  FileName: string;
+begin
+  try
+    FileName := TPath.Combine(TPath.GetTempPath, 'OpenAIUsageDashboard-codex.log');
+    if TFile.Exists(FileName) and (TFile.GetSize(FileName) > 1024 * 1024) then
+      TFile.Delete(FileName);
+    TFile.AppendAllText(FileName, FormatDateTime('yyyy-mm-dd hh:nn:ss.zzz', Now) +
+      ' pid=' + IntToStr(GetCurrentProcessId) + ' ' + AMessage + sLineBreak,
+      TEncoding.UTF8);
+  except
+    { Diagnostics must not interrupt the collector. No credentials are logged. }
+  end;
+end;
+
 function WinErrorText(const APrefix: string): string;
 begin
   Result := APrefix + ' (Windows-Fehler ' + IntToStr(GetLastError) + ')';
@@ -175,22 +194,14 @@ begin
     SameText(ExtractFileExt(FullPath), '.cmd');
 end;
 
-function BuildChildEnvironment: UnicodeString;
+function ParentEnvironment: TArray<string>;
 var
   Environment, Cursor: PWideChar;
   Entries: TStringList;
-  Entry, UserProfile: string;
-  I: Integer;
-  HasHome, HasCodexHome: Boolean;
+  Entry: string;
 begin
-  Result := '';
-  HasHome := False;
-  HasCodexHome := False;
   Entries := TStringList.Create;
   try
-    Entries.CaseSensitive := False;
-    Entries.Sorted := True;
-    Entries.Duplicates := dupIgnore;
     Environment := GetEnvironmentStringsW;
     if Environment = nil then
       raise Exception.Create(WinErrorText(
@@ -201,30 +212,87 @@ begin
       begin
         Entry := string(Cursor);
         Entries.Add(Entry);
-        if StartsText('HOME=', Entry) then
-          HasHome := True;
-        if StartsText('CODEX_HOME=', Entry) then
-          HasCodexHome := True;
         Inc(Cursor, Length(Entry) + 1);
       end;
     finally
       FreeEnvironmentStringsW(Environment);
     end;
+    Result := Entries.ToStringArray;
+  finally
+    Entries.Free;
+  end;
+end;
+
+class function TCodexClient.ResolveDashboardHome(const ALocalAppData: string): string;
+var
+  PackageRoot, PackagePath, Candidate: string;
+begin
+  Result := '';
+  if ALocalAppData = '' then
+    Exit;
+  Result := TPath.Combine(ALocalAppData, 'OpenAIUsageDashboard\Codex');
+  if FileExists(TPath.Combine(Result, 'auth.json')) then
+    Exit;
+
+  { MSIX redirects LocalAppData writes by helpers started from the Codex app.
+    Explorer-started processes see the physical package cache instead. Reuse
+    that same dashboard login; never copy or inspect its credentials. }
+  PackageRoot := TPath.Combine(ALocalAppData, 'Packages');
+  if not TDirectory.Exists(PackageRoot) then
+    Exit;
+  for PackagePath in TDirectory.GetDirectories(PackageRoot, 'OpenAI.Codex_*') do
+  begin
+    Candidate := TPath.Combine(PackagePath,
+      'LocalCache\Local\OpenAIUsageDashboard\Codex');
+    if FileExists(TPath.Combine(Candidate, 'auth.json')) then
+      Exit(Candidate);
+  end;
+end;
+
+class function TCodexClient.BuildChildEnvironment(
+  const AParentEntries: TArray<string>; const ADashboardHome: string): UnicodeString;
+var
+  Entries: TStringList;
+  Entry, UserProfile: string;
+  I: Integer;
+  HasHome, HasCodexHome, UseDashboardHome: Boolean;
+begin
+  Result := '';
+  UserProfile := '';
+  HasHome := False;
+  HasCodexHome := False;
+  { An unfinished login must not hide an existing working Codex profile. }
+  UseDashboardHome := (ADashboardHome <> '') and
+    FileExists(TPath.Combine(ADashboardHome, 'auth.json'));
+  Entries := TStringList.Create;
+  try
+    Entries.CaseSensitive := False;
+    Entries.Sorted := True;
+    Entries.Duplicates := dupIgnore;
+    for Entry in AParentEntries do
+    begin
+      if StartsText('USERPROFILE=', Entry) then
+        UserProfile := Copy(Entry, Length('USERPROFILE=') + 1, MaxInt);
+      if UseDashboardHome and StartsText('CODEX_HOME=', Entry) then
+        Continue;
+      Entries.Add(Entry);
+      if StartsText('HOME=', Entry) then
+        HasHome := True;
+      if StartsText('CODEX_HOME=', Entry) then
+        HasCodexHome := True;
+    end;
+
+    if UseDashboardHome then
+    begin
+      Entries.Add('CODEX_HOME=' + ADashboardHome);
+      HasCodexHome := True;
+    end;
 
     { Current Codex CLI builds need HOME for app-server even on Windows. }
-    if not HasHome then
-    begin
-      UserProfile := GetEnvironmentVariable('USERPROFILE');
-      if UserProfile <> '' then
-        Entries.Add('HOME=' + UserProfile);
-    end;
-    if not HasCodexHome then
-    begin
-      if UserProfile = '' then
-        UserProfile := GetEnvironmentVariable('USERPROFILE');
-      if UserProfile <> '' then
-        Entries.Add('CODEX_HOME=' + TPath.Combine(UserProfile, '.codex'));
-    end;
+    if not HasHome and (UserProfile <> '') then
+      Entries.Add('HOME=' + UserProfile);
+    if not HasCodexHome and (UserProfile <> '') then
+      Entries.Add('CODEX_HOME=' + TPath.Combine(UserProfile, '.codex'));
 
     for I := 0 to Entries.Count - 1 do
       Result := Result + Entries[I] + #0;
@@ -341,7 +409,7 @@ var
   Startup: TStartupInfoW;
   ProcessInfo: TProcessInformation;
   ChildInputRead, ChildOutputWrite, ChildErrorWrite: THandle;
-  LauncherPath, ApplicationName, CommandLine, WorkDir: string;
+  LauncherPath, ApplicationName, CommandLine, WorkDir, DashboardHome, Arguments: string;
   EnvironmentBlock: UnicodeString;
   Flags: DWORD;
 begin
@@ -372,6 +440,17 @@ begin
     if not SetHandleInformation(FErrorRead, HANDLE_FLAG_INHERIT, 0) then
       raise Exception.Create(WinErrorText('Fehlerpipe konnte nicht vorbereitet werden'));
 
+    DashboardHome := ResolveDashboardHome(GetEnvironmentVariable('LOCALAPPDATA'));
+    EnvironmentBlock := BuildChildEnvironment(ParentEnvironment, DashboardHome);
+    CodexDiagnostic('CLI=' + LauncherPath + '; dashboardHome=' + DashboardHome +
+      '; authFileExists=' + BoolToStr(FileExists(TPath.Combine(DashboardHome, 'auth.json')), True) +
+      '; dashboardHomeSelected=' + BoolToStr(
+        Pos(#0 + 'CODEX_HOME=' + DashboardHome + #0, #0 + EnvironmentBlock) > 0, True));
+    Arguments := ' app-server';
+    if (DashboardHome <> '') and
+       (Pos(#0 + 'CODEX_HOME=' + DashboardHome + #0, #0 + EnvironmentBlock) > 0) then
+      Arguments := Arguments + ' -c cli_auth_credentials_store=file';
+
     if SameText(ExtractFileExt(LauncherPath), '.cmd') then
     begin
       ApplicationName := GetEnvironmentVariable('COMSPEC');
@@ -380,15 +459,14 @@ begin
           'System32\cmd.exe');
       CommandLine := QuoteCommandLineArgument(ApplicationName) +
         ' /D /S /C "' + QuoteCommandLineArgument(LauncherPath) +
-        ' app-server"';
+        Arguments + '"';
     end
     else
     begin
       ApplicationName := LauncherPath;
-      CommandLine := QuoteCommandLineArgument(LauncherPath) + ' app-server';
+      CommandLine := QuoteCommandLineArgument(LauncherPath) + Arguments;
     end;
     WorkDir := ExtractFileDir(LauncherPath);
-    EnvironmentBlock := BuildChildEnvironment;
 
     FillChar(Startup, SizeOf(Startup), 0);
     Startup.cb := SizeOf(Startup);
@@ -421,6 +499,7 @@ begin
       '"title":"OpenAI Nutzungsanzeige","version":"3.0.0"},' +
       '"capabilities":{"experimentalApi":true}}}');
     ReadResponse(1);
+    CodexDiagnostic('App Server initialized');
     SendLine('{"method":"initialized","params":{}}');
   except
     if ChildInputRead <> 0 then
@@ -1045,7 +1124,11 @@ begin
     end;
 
     Result := RateOK or UsageOK;
-    if (RateError <> '') and (UsageError <> '') then
+    if ContainsText(RateError, 'chatgpt authentication required') and
+       ContainsText(UsageError, 'chatgpt authentication required') then
+      AError := 'Für Codex-Limits und Tokenstatistiken ist eine ChatGPT-Anmeldung erforderlich; ' +
+        'ein API-Key reicht dafür nicht aus. Bitte Codex-ChatGPT-Anmeldung.ps1 ausführen.'
+    else if (RateError <> '') and (UsageError <> '') then
       AError := RateError + ' ' + UsageError
     else if RateError <> '' then
       AError := RateError
@@ -1062,6 +1145,9 @@ begin
     end;
   finally
     ASnapshot.CodexError := AError;
+    CodexDiagnostic('limits=' + BoolToStr(ASnapshot.CodexRateLimitsAvailable, True) +
+      '; lifetime=' + BoolToStr(ASnapshot.CodexLifetimeAvailable, True) +
+      '; error=' + AError);
     FLock.Release;
   end;
   {$ELSE}

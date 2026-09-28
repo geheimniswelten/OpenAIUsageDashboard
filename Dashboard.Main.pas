@@ -200,6 +200,7 @@ begin
   {$IFDEF MSWINDOWS}
     if not TSecretStore.LoadAdminKey(Key, ErrorText) then
       FSettingsPanel.Visible := True;
+    FKeyEdit.TextPrompt := TSecretStore.MaskAdminKey(Key);
     IsPreview := (Pos('--render-', LowerCase(ParamStr(1))) = 1);
     if not IsPreview then
     begin
@@ -959,6 +960,7 @@ begin
         LayoutSettingsControls;
         Exit;
       end;
+      FKeyEdit.TextPrompt := TSecretStore.MaskAdminKey(FKeyEdit.Text);
       FKeyEdit.Text := '';
     end;
   {$IFEND}
@@ -1120,7 +1122,10 @@ var
 begin
   RegisterInteraction;
   if TSecretStore.DeleteAdminKey(ErrorText) then
-    FMessageLabel.Text := 'Der gespeicherte API-Key wurde entfernt.'
+  begin
+    FKeyEdit.TextPrompt := TSecretStore.MaskAdminKey('');
+    FMessageLabel.Text := 'Der gespeicherte API-Key wurde entfernt.';
+  end
   else
     FMessageLabel.Text := 'Löschen fehlgeschlagen: ' + ErrorText;
   LayoutSettingsControls;

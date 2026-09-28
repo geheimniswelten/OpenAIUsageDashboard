@@ -5,6 +5,7 @@ interface
 type
   TSecretStore = class sealed
   public
+    class function MaskAdminKey(const AKey: string): string; static;
     class function SaveAdminKey(const AKey: string; out AError: string): Boolean; static;
     class function LoadAdminKey(out AKey, AError: string): Boolean; static;
     class function DeleteAdminKey(out AError: string): Boolean; static;
@@ -243,6 +244,26 @@ begin
   end;
 end;
 {$ENDIF}
+
+class function TSecretStore.MaskAdminKey(const AKey: string): string;
+var
+  Key, Prefix: string;
+  PrefixLength: Integer;
+begin
+  Key := Trim(AKey);
+  if Key = '' then
+    Exit('sk-admin-…');
+  Prefix := '';
+  if Key.StartsWith('sk-admin-') then
+    Prefix := 'sk-admin-'
+  else if Key.StartsWith('sk-') then
+    Prefix := 'sk-';
+  PrefixLength := Length(Prefix);
+  if Length(Key) <= PrefixLength + 8 then
+    Exit(Prefix + '…');
+  Result := Prefix + Copy(Key, PrefixLength + 1, 4) + '…' +
+    Copy(Key, Length(Key) - 3, 4);
+end;
 
 class function TSecretStore.SaveAdminKey(const AKey: string; out AError: string): Boolean;
 {$IF Defined(MSWINDOWS)}

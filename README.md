@@ -96,6 +96,20 @@ Explorer ohne Codex im PATH funktioniert. Sie startet `codex app-server` unsicht
 hält den Prozess für spätere Aktualisierungen offen. Ein Codex-Fehler verhindert
 nicht die Anzeige der OpenAI-API-Daten.
 
+Die Codex-Limits und Tokenstatistiken benötigen eine **ChatGPT-Anmeldung**.
+Ein OpenAI-Admin-Key für die Kostenabfrage oder eine per API-Key angemeldete
+Codex-CLI kann diese Kontowerte nicht liefern. `Codex-ChatGPT-Anmeldung.ps1`
+startet die Browseranmeldung für ein eigenes Dashboard-Profil unter
+`%LOCALAPPDATA%\OpenAIUsageDashboard\Codex`; mit `-DeviceAuth` wird stattdessen
+ein Gerätecode angezeigt. Nach erfolgreicher Anmeldung verwendet das Dashboard
+dieses Profil. Wurde die Anmeldung aus der Codex-Desktop-App gestartet, wird auch
+deren von Windows umgeleiteter MSIX-Datenordner gefunden. Damit verwenden Starts
+aus dem Explorer dieselbe Dashboard-Anmeldung. Die bisherige CLI-Anmeldung bleibt
+erhalten. Solange im Dashboard-Profil keine `auth.json` vorhanden ist, verwendet
+das Dashboard weiterhin das bisherige Codex-Profil. Das separate Profil enthält
+die lokale Codex-Anmeldung und zugehörige CLI-Daten; der OpenAI-Admin-Key bleibt
+im Windows-Credential-Store.
+
 Fehlende Codex-Werte erscheinen als `–`; ein tatsächlich gemeldeter Nullwert
 bleibt `0`. Gesamttokens und Tagesstatistiken können unabhängig verfügbar sein.
 Die konkrete Fehlermeldung steht unten in den Einstellungen (bei Bedarf scrollen).
