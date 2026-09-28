@@ -70,8 +70,8 @@ end;
 
 function HttpErrorText(const AStatus: Integer; const ABody: string): string;
 var
-  V: TJSONValue;
-  O, E: TJSONObject;
+  V, ErrorValue: TJSONValue;
+  O: TJSONObject;
   Detail: string;
 begin
   Detail := '';
@@ -80,8 +80,11 @@ begin
     if V is TJSONObject then
     begin
       O := TJSONObject(V);
-      E := O.GetValue('error') as TJSONObject;
-      Detail := JsonString(E, 'message', '');
+      ErrorValue := O.GetValue('error');
+      if ErrorValue is TJSONObject then
+        Detail := JsonString(TJSONObject(ErrorValue), 'message', '')
+      else if ErrorValue is TJSONString then
+        Detail := ErrorValue.Value;
     end;
   finally
     V.Free;
@@ -95,6 +98,26 @@ begin
   end;
   if Detail <> '' then
     Result := Result + ' ' + Detail;
+end;
+
+function ReadJsonObject(const AValue: TJSONValue; const APath: string): TJSONObject;
+begin
+  { JSON null is a TJSONNull instance, not a nil object reference. An "as"
+    cast therefore raises EInvalidCast even for an explicitly absent value. }
+  if (AValue = nil) or (AValue is TJSONNull) then
+    Exit(nil);
+  if not (AValue is TJSONObject) then
+    raise EConvertError.CreateFmt('OpenAI lieferte für "%s" kein JSON-Objekt.', [APath]);
+  Result := TJSONObject(AValue);
+end;
+
+function ReadJsonArray(const AValue: TJSONValue; const APath: string): TJSONArray;
+begin
+  if (AValue = nil) or (AValue is TJSONNull) then
+    Exit(nil);
+  if not (AValue is TJSONArray) then
+    raise EConvertError.CreateFmt('OpenAI lieferte für "%s" kein JSON-Array.', [APath]);
+  Result := TJSONArray(AValue);
 end;
 
 function CurrentBillingStart(const ABillingDay: Integer;
@@ -214,10 +237,13 @@ begin
         if not (Value is TJSONObject) then
           raise EConvertError.Create('OpenAI lieferte kein JSON-Objekt.');
         Root := TJSONObject(Value);
-        Data := Root.GetValue('data') as TJSONArray;
+        Data := ReadJsonArray(Root.GetValue('data'), APath + '.data');
         if Data <> nil then
           for I := 0 to Data.Count - 1 do
           begin
+            { Empty entries are not buckets, including for latest-only services. }
+            if Data.Items[I] is TJSONNull then
+              Continue;
             CopyValue := TJSONObject.ParseJSONValue(Data.Items[I].ToJSON);
             Combined.AddElement(CopyValue);
           end;
@@ -247,23 +273,30 @@ var
   Daily: TDailyCost;
   I, J: Integer;
   BucketStart: Int64;
+  BucketPath, ItemPath: string;
 begin
   Buckets := TJSONArray(ABuckets);
   List := TList<TDailyCost>.Create;
   try
     for I := 0 to Buckets.Count - 1 do
     begin
-      Bucket := Buckets.Items[I] as TJSONObject;
+      BucketPath := Format('/organization/costs.data[%d]', [I]);
+      Bucket := ReadJsonObject(Buckets.Items[I], BucketPath);
+      if Bucket = nil then
+        Continue;
       BucketStart := JsonInt64(Bucket, 'start_time');
       Daily.Day := DateOf(UnixToDateTime(BucketStart, True));
       Daily.Amount := 0;
       Daily.HasCostData := False;
-      Results := Bucket.GetValue('results') as TJSONArray;
+      Results := ReadJsonArray(Bucket.GetValue('results'), BucketPath + '.results');
       if Results <> nil then
         for J := 0 to Results.Count - 1 do
         begin
-          Item := Results.Items[J] as TJSONObject;
-          Amount := Item.GetValue('amount') as TJSONObject;
+          ItemPath := Format('%s.results[%d]', [BucketPath, J]);
+          Item := ReadJsonObject(Results.Items[J], ItemPath);
+          if Item = nil then
+            Continue;
+          Amount := ReadJsonObject(Item.GetValue('amount'), ItemPath + '.amount');
           Daily.Amount := Daily.Amount + JsonFloat(Amount, 'value');
           if (Amount <> nil) and (Amount.GetValue('value') is TJSONNumber) then
             Daily.HasCostData := True;
@@ -292,7 +325,7 @@ var
   Daily: TDailyModelUsage;
   I, J, K: Integer;
   DayValue, UtcToday: TDateTime;
-  ModelName: string;
+  ModelName, BucketPath, ItemPath: string;
   Requests, Tokens, InputTokens, OutputTokens: Int64;
   HasRequests, HasInput, HasOutput, HasTokens: Boolean;
   Temp: TModelUsage;
@@ -308,17 +341,23 @@ begin
     ASnapshot.TokensToday := 0;
     for I := 0 to Buckets.Count - 1 do
     begin
-      Bucket := Buckets.Items[I] as TJSONObject;
+      BucketPath := Format('/organization/usage/completions.data[%d]', [I]);
+      Bucket := ReadJsonObject(Buckets.Items[I], BucketPath);
+      if Bucket = nil then
+        Continue;
       DayValue := DateOf(UnixToDateTime(JsonInt64(Bucket, 'start_time'), True));
       if (DayValue < UtcToday - 13) or (DayValue > UtcToday) then
         Continue;
       Daily := Default(TDailyModelUsage);
       Daily.Day := DayValue;
-      Results := Bucket.GetValue('results') as TJSONArray;
+      Results := ReadJsonArray(Bucket.GetValue('results'), BucketPath + '.results');
       if Results <> nil then
         for J := 0 to Results.Count - 1 do
         begin
-          Item := Results.Items[J] as TJSONObject;
+          ItemPath := Format('%s.results[%d]', [BucketPath, J]);
+          Item := ReadJsonObject(Results.Items[J], ItemPath);
+          if Item = nil then
+            Continue;
           HasRequests := TryJsonInt64(Item, 'num_model_requests', Requests);
           HasInput := TryJsonInt64(Item, 'input_tokens', InputTokens);
           HasOutput := TryJsonInt64(Item, 'output_tokens', OutputTokens);
@@ -414,6 +453,7 @@ var
   Service: TServiceUsage;
   I, J, Index: Integer;
   PageObject: TObject;
+  BucketPath, ItemPath: string;
 begin
   Service.Name := AName;
   Service.Value := 0;
@@ -426,8 +466,11 @@ begin
       Buckets := TJSONArray(PageObject);
       for I := 0 to Buckets.Count - 1 do
       begin
-        Bucket := Buckets.Items[I] as TJSONObject;
-        Results := Bucket.GetValue('results') as TJSONArray;
+        BucketPath := Format('%s.data[%d]', [APath, I]);
+        Bucket := ReadJsonObject(Buckets.Items[I], BucketPath);
+        if Bucket = nil then
+          Continue;
+        Results := ReadJsonArray(Bucket.GetValue('results'), BucketPath + '.results');
         if Results = nil then
           Continue;
         if ALatestOnly and (I < Buckets.Count - 1) then
@@ -436,7 +479,10 @@ begin
           Service.Value := 0;
         for J := 0 to Results.Count - 1 do
         begin
-          Item := Results.Items[J] as TJSONObject;
+          ItemPath := Format('%s.results[%d]', [BucketPath, J]);
+          Item := ReadJsonObject(Results.Items[J], ItemPath);
+          if Item = nil then
+            Continue;
           Service.Value := Service.Value + JsonFloat(Item, AValueField);
           if ARequestField <> '' then
             Service.Requests := Service.Requests + JsonInt64(Item, ARequestField);
@@ -478,7 +524,7 @@ begin
           ASnapshot.SpendingLimit := JsonFloat(O, 'spend_limit', 0);
         if ASnapshot.SpendingLimit <= 0 then
           ASnapshot.SpendingLimit := JsonFloat(O, 'monthly_limit', 0);
-        Data := O.GetValue('data') as TJSONObject;
+        Data := ReadJsonObject(O.GetValue('data'), '/organization/spend_limit.data');
         if (ASnapshot.SpendingLimit <= 0) and (Data <> nil) then
           ASnapshot.SpendingLimit := JsonFloat(Data, 'limit', 0);
       end;
