@@ -1,4 +1,4 @@
-unit Dashboard.Renderer;
+﻿unit Dashboard.Renderer;
 
 interface
 
