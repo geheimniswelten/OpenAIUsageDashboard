@@ -1,9 +1,10 @@
-﻿unit Dashboard.Platform;
+unit Dashboard.Platform;
 
 interface
 
 
 uses
+  System.Classes,
   System.Types,
   System.UITypes,
   FMX.Forms,
@@ -66,10 +67,20 @@ type
     FRequestedDisplay: Integer;
     FMessageWindow: HWND;
     FDisplayRefreshAfterTick: UInt64;
-    FDisplayRestoreUntilTick: UInt64;
     FResumePending: Boolean;
+    FDisplayPowerNotification: HPOWERNOTIFY;
+    FDisplayPowerState: Integer;
+    FNextDisplayWakeTick: UInt64;
+    FDisplayWakeRetryCount: Integer;
+    FApplicationWindow: HWND;
+    FOnDashboardRestore: TNotifyEvent;
+    FRestoreQueued: Boolean;
+    FPlacementBusy: Boolean;
+    FLastWindowStatus: string;
     procedure QueueWindowsDisplayRefresh;
     procedure PlaceWindowsDashboard;
+    procedure CheckWindowsDisplayWake;
+    procedure QueueDashboardRestore;
     function WindowsDisplayDevice(const AIndex: Integer): string;
     procedure RebuildWindowsDisplays;
     procedure SetWindowsBlackout(const ABlack: Boolean);
@@ -92,9 +103,9 @@ type
     procedure SetKeepAwake(const AEnabled: Boolean);
 {$IF Defined(MSWINDOWS)}
     procedure WindowsMessage(var AMessage: TMessage);
+    function WindowsTick: UInt64; virtual;
     function ApplyWindowsExecutionState(const AFlags: EXECUTION_STATE): Boolean; virtual;
     procedure WakeWindowsDisplays; virtual;
-    procedure LogWindowsEvent(const AText: string); virtual;
 {$ENDIF}
   public
     constructor Create(const AMainForm: TCommonCustomForm);
@@ -102,6 +113,9 @@ type
     procedure PlaceDashboard(const ARequestedDisplay: Integer);
 {$IF Defined(MSWINDOWS)}
     procedure SetCollectorOnly(const AEnabled: Boolean);
+    procedure RestoreWindowsDashboard(const AActivate: Boolean = False);
+    procedure LogWindowsEvent(const AText: string); virtual;
+    property OnDashboardRestore: TNotifyEvent read FOnDashboardRestore write FOnDashboardRestore;
 {$ENDIF}
     procedure GetDisplayChoices(out AValues: TArray<Integer>;
       out ACaptions: TArray<string>);
@@ -118,12 +132,12 @@ implementation
 
 uses
   System.SysUtils,
-  System.Classes,
   System.DateUtils,
   System.Math,
   FMX.Types
 {$IF Defined(MSWINDOWS)}
   , System.IOUtils,
+  Winapi.CommCtrl,
   Winapi.MultiMon,
   FMX.Platform.Win
 {$ENDIF}
@@ -135,12 +149,39 @@ uses
 {$ENDIF}
   ;
 
+{$IF Defined(MSWINDOWS)}
+const
+  CDashboardRestoreMessage = WM_APP + $473;
+
+function DashboardApplicationProc(AWindow: HWND; AMessage: UINT;
+  AWParam: WPARAM; ALParam: LPARAM; ASubclassId: UINT_PTR;
+  ARefData: DWORD_PTR): LRESULT; stdcall;
+var
+  Coordinator: TPlatformCoordinator;
+begin
+  Coordinator := TPlatformCoordinator(Pointer(ARefData));
+  if (AMessage = WM_SYSCOMMAND) and (AWParam and $FFF0 = SC_RESTORE) then
+    Coordinator.QueueDashboardRestore;
+  Result := DefSubclassProc(AWindow, AMessage, AWParam, ALParam);
+end;
+
+function WindowsDashboardBounds(const ADisplay: TDisplay): TRect;
+begin
+  Result := ADisplay.PhysicalBounds;
+  { Avoid exact monitor coverage, which Windows may classify as fullscreen for
+    its notification rule. Leave one physical pixel at the bottom at any DPI. }
+  if Result.Height > 1 then
+    Dec(Result.Bottom);
+end;
+{$ENDIF}
+
 { TPlatformCoordinator }
 
 constructor TPlatformCoordinator.Create(const AMainForm: TCommonCustomForm);
 {$IF Defined(MSWINDOWS)}
 var
   Input: TLastInputInfo;
+  CommonControls: TInitCommonControlsEx;
 {$ENDIF}
 {$IF Defined(ANDROID)}
 var
@@ -156,9 +197,24 @@ begin
   FKnownDisplayCount := -1;
   FDisplayPreference := TDashboardDisplayPreference.Create(-1);
   FRequestedDisplay := -1;
+  FDisplayPowerState := -1;
   { A hidden top-level window receives sent broadcasts too. Application.OnMessage
     only observes queued messages; VCL application events do not belong to FMX. }
   FMessageWindow := AllocateHWnd(WindowsMessage);
+  FDisplayPowerNotification := RegisterPowerSettingNotification(FMessageWindow,
+    GUID_SESSION_DISPLAY_STATUS, DEVICE_NOTIFY_WINDOW_HANDLE);
+  if FDisplayPowerNotification = nil then
+    LogWindowsEvent('Display power notification registration failed: ' + SysErrorMessage(GetLastError));
+  FApplicationWindow := ApplicationHWND;
+  { The RTL's subclass wrappers require InitComCtl, which is initialized by
+    InitCommonControlsEx. An FMX process may not have created any VCL control. }
+  CommonControls.dwSize := SizeOf(CommonControls);
+  CommonControls.dwICC := ICC_STANDARD_CLASSES;
+  InitCommonControlsEx(CommonControls);
+  if not SetWindowSubclass(FApplicationWindow, DashboardApplicationProc,
+    UINT_PTR(Self), DWORD_PTR(Self)) then
+    LogWindowsEvent('Taskbar restore handler registration failed');
+  LogWindowsEvent('Display coordinator started');
   FillChar(Input, SizeOf(Input), 0);
   Input.cbSize := SizeOf(Input);
   if GetLastInputInfo(Input) then
@@ -175,6 +231,10 @@ end;
 destructor TPlatformCoordinator.Destroy;
 begin
 {$IF Defined(MSWINDOWS)}
+  FOnDashboardRestore := nil;
+  RemoveWindowSubclass(FApplicationWindow, DashboardApplicationProc, UINT_PTR(Self));
+  if FDisplayPowerNotification <> nil then
+    UnregisterPowerSettingNotification(FDisplayPowerNotification);
   if FMessageWindow <> 0 then
     DeallocateHWnd(FMessageWindow);
   FMessageWindow := 0;
@@ -211,7 +271,7 @@ begin
     Flags := Flags or ES_SYSTEM_REQUIRED;
   if AEnabled and not FCollectorOnly then
     Flags := Flags or ES_DISPLAY_REQUIRED;
-  NowTick := GetTickCount64;
+  NowTick := WindowsTick;
   StateChanged := (Flags <> FAppliedExecutionState) or (FKeepAwake <> AEnabled);
   WakeDisplay := AEnabled and not FCollectorOnly and
     (not FKeepAwake or FResumePending);
@@ -237,8 +297,16 @@ begin
   end;
   FKeepAwake := AEnabled;
   FResumePending := False;
+  if not AEnabled or FCollectorOnly then
+    FNextDisplayWakeTick := 0;
   if WakeDisplay then
+  begin
+    FDisplayWakeRetryCount := 0;
+    FNextDisplayWakeTick := NowTick + 5000;
     WakeWindowsDisplays;
+  end
+  else
+    CheckWindowsDisplayWake;
 {$ELSE}
   if FKeepAwake = AEnabled then
     Exit;
@@ -274,6 +342,7 @@ begin
     FRequestedDisplay := ARequestedDisplay;
     FDisplayPreference := TDashboardDisplayPreference.Create(ARequestedDisplay);
   end;
+  FMainForm.FullScreen := False;
   FMainForm.BorderStyle := TFmxFormBorderStyle.None;
   FMainForm.FormStyle := TFormStyle.StayOnTop;
   FMainForm.Position := TFormPosition.Designed;
@@ -375,7 +444,7 @@ begin
   { The collector continues to run, but never takes ownership of any monitor. }
   if FCollectorOnly then
     Exit;
-  NowTick := GetTickCount64;
+  NowTick := WindowsTick;
   if (FDisplayRefreshAfterTick <> 0) and (NowTick >= FDisplayRefreshAfterTick) then
   begin
     FDisplayRefreshAfterTick := 0;
@@ -386,17 +455,13 @@ begin
     ((Screen.DisplayCount <> FKnownDisplayCount) or
      (WindowsDisplaySignature <> FDisplaySignature)) then
     RebuildWindowsDisplays;
-  { Some display drivers/Windows restore window bounds after WM_DISPLAYCHANGE.
-    Reassert native fullscreen bounds briefly, without stealing focus. }
-  if (FDisplayRefreshAfterTick = 0) and (FDisplayRestoreUntilTick <> 0) then
-  begin
+  { Driver/Shell changes can arrive late or without a broadcast. Compare native
+    bounds on every tick without stealing focus; preserve user minimize. }
+  if FDisplayRefreshAfterTick = 0 then
     PlaceWindowsDashboard;
-    if NowTick >= FDisplayRestoreUntilTick then
-      FDisplayRestoreUntilTick := 0;
-  end;
   FillChar(Input, SizeOf(Input), 0);
   Input.cbSize := SizeOf(Input);
-  NowTick := GetTickCount64;
+  NowTick := WindowsTick;
   if GetLastInputInfo(Input) and (Input.dwTime <> FLastInputTick) then
   begin
     FLastInputTick := Input.dwTime;
@@ -417,7 +482,7 @@ end;
 procedure TPlatformCoordinator.NotifyInteraction(const AIdleMinutes: Integer);
 begin
 {$IF Defined(MSWINDOWS)}
-  FRevealUntilTick := GetTickCount64 + UInt64(Max(1, AIdleMinutes)) * 60000;
+  FRevealUntilTick := WindowsTick + UInt64(Max(1, AIdleMinutes)) * 60000;
   SetWindowsBlackout(False);
 {$ENDIF}
 end;
@@ -487,6 +552,39 @@ begin
   Result := SetThreadExecutionState(AFlags) <> 0;
 end;
 
+function TPlatformCoordinator.WindowsTick: UInt64;
+begin
+  Result := GetTickCount64;
+end;
+
+procedure TPlatformCoordinator.CheckWindowsDisplayWake;
+var
+  NowTick: UInt64;
+begin
+  if not FKeepAwake or FCollectorOnly or (FNextDisplayWakeTick = 0) then
+    Exit;
+  if FDisplayPowerState = 1 then
+  begin
+    FNextDisplayWakeTick := 0;
+    Exit;
+  end;
+  NowTick := WindowsTick;
+  if NowTick < FNextDisplayWakeTick then
+    Exit;
+  Inc(FDisplayWakeRetryCount);
+  if FDisplayWakeRetryCount < 3 then
+    FNextDisplayWakeTick := NowTick + 5000
+  else if FDisplayPowerState >= 0 then
+    FNextDisplayWakeTick := NowTick + 60000
+  else
+    FNextDisplayWakeTick := 0;
+  LogWindowsEvent(Format('Display wake retry=%d reportedState=%d',
+    [FDisplayWakeRetryCount, FDisplayPowerState]));
+  { Reset the idle timeout as well as issuing the explicit wake command. }
+  ApplyWindowsExecutionState(FAppliedExecutionState);
+  WakeWindowsDisplays;
+end;
+
 procedure TPlatformCoordinator.LogWindowsEvent(const AText: string);
 var
   FileName: string;
@@ -501,7 +599,7 @@ begin
       TFile.Move(FileName, FileName + '.previous');
     end;
     TFile.AppendAllText(FileName, FormatDateTime('yyyy-mm-dd hh:nn:ss', Now) +
-      ' ' + AText + sLineBreak, TEncoding.UTF8);
+      Format(' pid=%d %s', [GetCurrentProcessId, AText]) + sLineBreak, TEncoding.UTF8);
   except
     { Diagnostics must not prevent wake-up/placement on a read-only profile. }
   end;
@@ -509,12 +607,24 @@ end;
 
 procedure TPlatformCoordinator.QueueWindowsDisplayRefresh;
 begin
-  FDisplayRefreshAfterTick := GetTickCount64 + 750;
-  FDisplayRestoreUntilTick := FDisplayRefreshAfterTick + 5000;
+  FDisplayRefreshAfterTick := WindowsTick + 750;
 end;
 
 procedure TPlatformCoordinator.WindowsMessage(var AMessage: TMessage);
+var
+  Setting: PPowerBroadcastSetting;
+  State: DWORD;
+  Handler: TNotifyEvent;
 begin
+  if AMessage.Msg = CDashboardRestoreMessage then
+  begin
+    FRestoreQueued := False;
+    AMessage.Result := 0;
+    Handler := FOnDashboardRestore;
+    if Assigned(Handler) then
+      Handler(Self);
+    Exit;
+  end;
   case AMessage.Msg of
     WM_DISPLAYCHANGE, WM_DEVICECHANGE:
       QueueWindowsDisplayRefresh;
@@ -522,7 +632,31 @@ begin
       if (AMessage.WParam = SPI_SETWORKAREA) or (AMessage.WParam = 0) then
         QueueWindowsDisplayRefresh;
     WM_POWERBROADCAST:
-      if AMessage.WParam = PBT_APMSUSPEND then
+      if (AMessage.WParam = PBT_POWERSETTINGCHANGE) and (AMessage.LParam <> 0) then
+      begin
+        Setting := PPowerBroadcastSetting(AMessage.LParam);
+        if IsEqualGUID(Setting.PowerSetting, GUID_SESSION_DISPLAY_STATUS) and
+           (Setting.DataLength = SizeOf(State)) then
+        begin
+          Move(Setting.Data[0], State, SizeOf(State));
+          if State <= 2 then
+          begin
+            FDisplayPowerState := State;
+            LogWindowsEvent(Format('Windows display power state=%d (0=off, 1=on, 2=dim)', [State]));
+            if State = 1 then
+            begin
+              FNextDisplayWakeTick := 0;
+              QueueWindowsDisplayRefresh;
+            end
+            else if FKeepAwake and not FCollectorOnly and (FNextDisplayWakeTick = 0) then
+            begin
+              FDisplayWakeRetryCount := 0;
+              FNextDisplayWakeTick := WindowsTick + 5000;
+            end;
+          end;
+        end;
+      end
+      else if AMessage.WParam = PBT_APMSUSPEND then
         LogWindowsEvent('Windows suspend notification')
       else if (AMessage.WParam = PBT_APMRESUMEAUTOMATIC) or
          (AMessage.WParam = PBT_APMRESUMESUSPEND) or
@@ -534,6 +668,40 @@ begin
   end;
   AMessage.Result := DefWindowProc(FMessageWindow, AMessage.Msg,
     AMessage.WParam, AMessage.LParam);
+end;
+
+procedure TPlatformCoordinator.QueueDashboardRestore;
+begin
+  if FRestoreQueued then
+    Exit;
+  FRestoreQueued := PostMessage(FMessageWindow, CDashboardRestoreMessage, 0, 0);
+end;
+
+procedure TPlatformCoordinator.RestoreWindowsDashboard(const AActivate: Boolean);
+var
+  WindowHandle: HWND;
+begin
+  if FCollectorOnly or (not FMainForm.Visible and not FMainForm.CanShow) then
+    Exit;
+  FMainForm.WindowState := TWindowState.wsNormal;
+  { FMX's normal state may already be cached while its native window remains
+    minimized/hidden. Restore both the taskbar proxy and the real dashboard. }
+  Winapi.Windows.ShowWindow(FApplicationWindow, SW_SHOWNOACTIVATE);
+  if not FMainForm.Visible then
+    FMainForm.Show;
+  WindowHandle := FormToHWND(FMainForm);
+  Winapi.Windows.ShowWindow(WindowHandle, SW_SHOWNOACTIVATE);
+  { Restoring the form can synchronously re-minimize FMX's taskbar proxy while
+    WM_WINDOWPOSCHANGED still observes its previous minimized placement. }
+  Winapi.Windows.ShowWindow(FApplicationWindow, SW_SHOWNOACTIVATE);
+  Screen.UpdateDisplayInformation;
+  RebuildWindowsDisplays;
+  if AActivate then
+  begin
+    FMainForm.BringToFront;
+    SetForegroundWindow(WindowHandle);
+  end;
+  LogWindowsEvent('Dashboard explicitly restored');
 end;
 
 procedure TPlatformCoordinator.WakeWindowsDisplays;
@@ -575,19 +743,58 @@ end;
 procedure TPlatformCoordinator.PlaceWindowsDashboard;
 var
   Display: TDisplay;
-  Bounds: TRect;
+  Bounds, ActualBounds: TRect;
+  LogicalBounds: TRectF;
+  WindowHandle: HWND;
+  Status: string;
 begin
-  if FCollectorOnly or (FTargetDisplay < 0) or
+  if FPlacementBusy or FCollectorOnly or (FTargetDisplay < 0) or
      (FTargetDisplay >= Screen.DisplayCount) then
     Exit;
-  Display := Screen.Displays[FTargetDisplay];
-  FMainForm.WindowState := TWindowState.wsNormal;
-  FMainForm.SetBoundsF(Display.Bounds);
-  Bounds := Display.PhysicalBounds;
-  { SetBoundsF can be a no-op if FMX still caches the old bounds after Windows
-    moved a borderless window. Native physical bounds also handle mixed DPI. }
-  SetWindowPos(FormToHWND(FMainForm), 0, Bounds.Left, Bounds.Top,
-    Bounds.Width, Bounds.Height, SWP_NOACTIVATE or SWP_NOZORDER);
+  { Automatic recovery must not undo an intentional taskbar minimization. }
+  WindowHandle := FormToHWND(FMainForm);
+  if IsIconic(FApplicationWindow) or IsIconic(WindowHandle) or
+     (FMainForm.WindowState = TWindowState.wsMinimized) then
+  begin
+    if FLastWindowStatus <> 'Dashboard minimized' then
+    begin
+      FLastWindowStatus := 'Dashboard minimized';
+      LogWindowsEvent(FLastWindowStatus);
+    end;
+    Exit;
+  end;
+  FPlacementBusy := True;
+  try
+    Display := Screen.Displays[FTargetDisplay];
+    Bounds := WindowsDashboardBounds(Display);
+    LogicalBounds := Display.Bounds;
+    if Display.PhysicalBounds.Height > 1 then
+      LogicalBounds.Bottom := LogicalBounds.Bottom - 1 / Display.Scale;
+    FMainForm.SetBoundsF(LogicalBounds);
+    { SetBoundsF can be a no-op if FMX still caches the old bounds after Windows
+      moved a borderless window. Native physical bounds also handle mixed DPI. }
+    ActualBounds := Default(TRect);
+    if not GetWindowRect(WindowHandle, ActualBounds) or not EqualRect(Bounds, ActualBounds) then
+      if not SetWindowPos(WindowHandle, 0, Bounds.Left, Bounds.Top,
+        Bounds.Width, Bounds.Height, SWP_NOACTIVATE or SWP_NOZORDER) then
+        LogWindowsEvent('Dashboard placement failed: ' + SysErrorMessage(GetLastError));
+    if FMainForm.Visible and not IsWindowVisible(WindowHandle) then
+    begin
+      Winapi.Windows.ShowWindow(WindowHandle, SW_SHOWNOACTIVATE);
+    end;
+    GetWindowRect(WindowHandle, ActualBounds);
+    Status := Format('Dashboard window hwnd=%s fmxVisible=%s nativeVisible=%s bounds=%d,%d,%d,%d',
+      [IntToHex(WindowHandle, 16), BoolToStr(FMainForm.Visible, True),
+       BoolToStr(IsWindowVisible(WindowHandle), True), ActualBounds.Left,
+       ActualBounds.Top, ActualBounds.Right, ActualBounds.Bottom]);
+    if Status <> FLastWindowStatus then
+    begin
+      FLastWindowStatus := Status;
+      LogWindowsEvent(Status);
+    end;
+  finally
+    FPlacementBusy := False;
+  end;
 end;
 
 function TPlatformCoordinator.WindowsDisplaySignature: string;
@@ -614,6 +821,8 @@ var
   Display: TDisplay;
   WindowHandle: HWND;
   ExtendedStyle: NativeInt;
+  LogicalBounds: TRectF;
+  PhysicalBounds: TRect;
 begin
   FBlackForms.Clear;
   FKnownDisplayCount := Screen.DisplayCount;
@@ -645,14 +854,20 @@ begin
       BlackForm.Position := TFormPosition.Designed;
       BlackForm.Fill.Kind := TBrushKind.Solid;
       BlackForm.Fill.Color := TAlphaColorRec.Black;
-      BlackForm.SetBoundsF(Display.Bounds);
+      LogicalBounds := Display.Bounds;
+      if Display.PhysicalBounds.Height > 1 then
+        LogicalBounds.Bottom := LogicalBounds.Bottom - 1 / Display.Scale;
+      BlackForm.SetBoundsF(LogicalBounds);
       WindowHandle := FormToHWND(BlackForm);
       ExtendedStyle := GetWindowLongPtr(WindowHandle, GWL_EXSTYLE);
       SetWindowLongPtr(WindowHandle, GWL_EXSTYLE, ExtendedStyle or
         WS_EX_NOACTIVATE or WS_EX_TOOLWINDOW);
       FBlackForms.Add(BlackForm);
-      if (FRevealUntilTick = 0) or (GetTickCount64 >= FRevealUntilTick) then
+      if (FRevealUntilTick = 0) or (WindowsTick >= FRevealUntilTick) then
         BlackForm.Show;
+      PhysicalBounds := WindowsDashboardBounds(Display);
+      SetWindowPos(WindowHandle, HWND_TOPMOST, PhysicalBounds.Left, PhysicalBounds.Top,
+        PhysicalBounds.Width, PhysicalBounds.Height, SWP_NOACTIVATE);
     end;
 end;
 

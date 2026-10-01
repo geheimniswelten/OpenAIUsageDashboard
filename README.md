@@ -49,6 +49,24 @@ den hausinternen HTTP-Sammler Klartextverkehr.
 
 ## Windows einrichten
 
+Unter Windows läuft eine Instanz pro Benutzer und Windows-Sitzung. Die Sperre
+wird vor dem Anlegen von Dashboard, Tray-Symbol und Sammlern gesetzt. Gleichzeitige
+Starts über Aufgabenplaner, Desktop-Verknüpfung oder angehefteten Taskleisten-Link
+öffnen deshalb keine zusätzlichen Sammlerprozesse. Ein weiterer normaler Start
+fordert die laufende Instanz zum Anzeigen auf; die Anforderung bleibt auch während
+deren Start erhalten und wird vom Anwendungstimer spätestens beim nächsten Tick
+bearbeitet. Geöffnete Sammlereinstellungen samt ungespeicherten Eingaben bleiben
+erhalten. Ein weiterer Start mit `--collector` beendet sich ohne Einblenden.
+
+Die Sperre wird nach vollständigem Beenden der Sammler freigegeben. Nach einem
+Absturz kann der nächste Start einen verlassenen Mutex übernehmen. Unterschiedliche
+Windows-Sitzungen bleiben getrennt; für das sichtbare Dashboard gehört der
+Aufgabenplaner-Start in die angemeldete interaktive Sitzung. Die Render-Vorschauen
+`--render-preview` und `--render-settings-preview` laufen unabhängig.
+
+Beim ersten Wechsel auf diese Version müssen bereits laufende ältere EXEs beendet
+werden, da sie die neue Instanzsperre noch nicht verwenden.
+
 Beim ersten Start öffnet sich die Einstellungskarte. Die Beschriftungen sind für
 den dunklen Hintergrund fest auf helle Schrift gesetzt; Eingabefelder behalten
 ihren hellen FMX-Standardstil mit dunkler Schrift. Edit- und Button-Schrift ist
@@ -226,8 +244,12 @@ die Touchflächen oder Schrift zu verkleinern.
   `TPlatformCoordinator` empfängt `WM_DISPLAYCHANGE`, `WM_DEVICECHANGE`, relevante
   `WM_SETTINGCHANGE`-Meldungen und Resume-Ereignisse. Nach einer kurzen Wartezeit
   wird die FMX-Monitorliste aktualisiert und das Dashboard mit nativen
-  Pixelkoordinaten ohne Fokuswechsel neu platziert. Für fünf Sekunden wird die
-  Platzierung nachgeführt, falls Windows sie während des Wiederanmeldens ändert.
+  Pixelkoordinaten ohne Fokuswechsel neu platziert. Die tatsächlichen nativen
+  Fenstergrenzen werden auch danach weiter geprüft, falls der Treiber das Fenster
+  verspätet verschiebt. Ein unerwartet verborgenes natives Fenster wird bei weiterhin
+  sichtbarem FMX-Dashboard wieder angezeigt. Bewusste Minimierung bleibt erhalten;
+  beim Wiederherstellen über die Taskleiste werden sowohl das FMX-Anwendungsfenster
+  als auch das eigentliche Dashboard ausdrücklich wiederhergestellt.
   Die Gerätekennung des gewählten Monitors bleibt während der Programmlaufzeit
   erhalten, auch wenn er verschwindet oder die Monitorindizes wechseln. Eine
   vorübergehende Ausweichanzeige überschreibt diese Zuordnung nicht. Das betrifft
@@ -244,24 +266,47 @@ die Touchflächen oder Schrift zu verkleinern.
   wachhalten, keine Bildschirm-Anforderung. Beim Beenden werden alle Anforderungen
   freigegeben. Manuelles Schlafen, ausgeschaltete Hardware und getrennte Kabel
   können diese APIs nicht aufheben.
+- Windows: `GUID_SESSION_DISPLAY_STATUS` liefert zusätzlich den von Windows
+  gemeldeten Zustand `off`, `on` oder `dim`. Beim Eintritt in die Wachzeit werden
+  nicht bestätigte Einschaltanforderungen nach fünf, zehn und fünfzehn Sekunden
+  wiederholt. Meldet Windows weiterhin `off` oder `dim`, folgen während der
+  Wachzeit Versuche im Abstand von einer Minute. Ein `on`-Ereignis beendet die
+  Wiederholungen und prüft die Fensterplatzierung erneut. Ohne Zustandsmeldung
+  bleiben die Wiederholungen auf drei begrenzt. Außerhalb der Wachzeit und im
+  Sammlermodus erfolgen keine Bildschirm-Einschaltversuche.
+- Windows: Dashboard und schwarze Abdeckfenster lassen am unteren Monitorrand
+  einen physischen Pixel frei. Das soll die automatische Windows-Vollbilderkennung
+  für **Bitte nicht stören** vermeiden, während die rahmenlose Anzeige erhalten
+  bleibt. Die Wirkung muss auf dem Zielrechner geprüft werden; die globale
+  Windows-Benachrichtigungseinstellung wird nicht geändert.
+- Windows: Die Trayregistrierung wird alle fünf Sekunden geprüft. Ein verlorenes
+  Symbol wird auch dann neu angemeldet, wenn VCL es noch als sichtbar führt.
+  Solange im Sammlermodus keine Wiederanmeldung gelingt, bleibt ein normales
+  Einstellungsfenster über die Taskleiste erreichbar.
 - Windows-Diagnose: Unter `%TEMP%\OpenAIUsageDashboard-display.log` im ausführenden
   Benutzerkonto entsteht ein Protokoll. Es enthält Zeitfenster-/Moduswechsel,
-  Power-API-Fehler, Einschaltanforderungen, Suspend/Resume und Monitorzuordnungen
-  mit Ortszeit. Bei 1 MiB wird eine einzelne `.previous`-Datei vorgehalten.
-  Ein protokollierter Einschaltbefehl ist keine Bestätigung der Hardware.
+  Power-API-Fehler, Einschaltanforderungen und Wiederholungen, Windows-Displayzustand,
+  Suspend/Resume, Monitorzuordnungen, native Fenstergrenzen/-sichtbarkeit sowie
+  Trayfehler und Wiederanmeldungen mit Ortszeit und Prozess-ID. Bei 1 MiB wird eine
+  einzelne `.previous`-Datei vorgehalten. Ein protokollierter Einschaltbefehl oder
+  Windows-Zustand ist keine Bestätigung eines physisch eingeschalteten Monitors.
 - Android: `FLAG_KEEP_SCREEN_ON` wird im selben Zeitfenster dynamisch auf Activity
   und Presentation gesetzt beziehungsweise entfernt.
 
-Die bisherige Zeitprüfung sah den 10-Uhr-Aufruf bereits vor. Ohne Protokoll vom
-betroffenen PC ist nicht rückwirkend beweisbar, ob der Aufruf ausblieb oder der
-Monitor/Treiber nicht auf die Anforderung reagierte. Das neue Protokoll macht
-diesen Unterschied beim nächsten Test sichtbar. Der nachgewiesene Fehler bei der
-Monitorrückkehr war das Überschreiben des Zielindex durch einen Ausweichmonitor.
+Im vorliegenden Protokoll vom 1. Oktober 2026 stehen die Wachhalteanforderung
+und der Einschaltbefehl um 10:00:00; trotzdem meldete der Benutzer nach 10 Uhr
+schwarze Monitore und ein nicht wiederherstellbares Fenster. Die bisherigen Logs
+unterscheiden Monitor-Standby nicht von schwarzen Abdeckfenstern bei verlorenem
+Dashboard. Die zusätzlichen Zustandsmeldungen helfen beim nächsten Lauf, beide
+Fälle auseinanderzuhalten. Die Gerätezuordnung bei kurzzeitigem Monitorverlust
+bleibt erhalten.
 
 Windows-API-Referenzen: [SetThreadExecutionState](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-setthreadexecutionstate),
 [SC_MONITORPOWER](https://learn.microsoft.com/en-us/windows/win32/menurc/wm-syscommand),
 [WM_DISPLAYCHANGE](https://learn.microsoft.com/en-us/windows/win32/gdi/wm-displaychange),
-[Monitor-Gerätekennung](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-enumdisplaydevicesw).
+[Monitor-Gerätekennung](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-enumdisplaydevicesw),
+[Displayzustandsmeldungen](https://learn.microsoft.com/en-us/windows/win32/power/power-setting-guids),
+[Benachrichtigungen und Vollbildregel](https://support.microsoft.com/de-de/windows/experience/notifications-and-do-not-disturb-in-windows).
 
 Zum Prüfen auf dem Ziel-PC: Die neue EXE anstelle der bisherigen starten, das
 Windows-Monitortimeout unverändert lassen und das nächste Zeitfenster abwarten
@@ -297,10 +342,17 @@ OtherDisplayIdleMinutes=10
 
 ## Verifikation
 
-- Win64-Anwendung kompiliert; Dashboard- und Einstellungsansicht wurden als
-  Vorschauen gerendert und visuell geprüft.
+- Win64-Anwendung kompiliert; Plattform- und Traytests der aktuellen
+  Monitor-/Fensterkorrektur sind bestanden.
+- `tests/Instance.Tests.dpr` prüft die Instanzsperre in echten getrennten Prozessen:
+  Doppelstarts, sechs gleichzeitige Erststarts, Aktivierung während des Starts,
+  Zusammenfassung von Anforderungen, stille Zweitstarts, Beenden/Neustart und
+  Wiederanlauf nach verlassenem Mutex. Der optionale Aufruf `--app <EXE>` prüft
+  zusätzlich die Zweitstartpfade der gebauten Anwendung, ohne deren Sammler zu starten.
 - Alle gemeinsam genutzten Units einschließlich Android-Presentation-Code wurden
-  mit dem Android64-Compiler übersetzt und zur ARM64-Shared-Library gelinkt.
+  mit dem Android64-Compiler übersetzt. Der aktuelle Linktest scheitert an dem auf
+  diesem Rechner fehlenden `ldandroid.exe`; eine neue Android-Library/APK ist
+  daher für diese Änderung nicht verifiziert.
 - `tests/Dashboard.Tests.dpr` prüft Prognose (inklusive Ausschluss des heutigen
   Tages), JSON-Roundtrip, Tagesnutzung und authentifizierten Snapshot-Transport.
 - `tests/OpenAI.Tests.dpr` prüft ohne API-Aufruf UTC-Tages-/Monatsgrenzen,
@@ -315,17 +367,22 @@ OtherDisplayIdleMinutes=10
   manipulierten Authentifizierungstags. Der optionale DPAPI-Teil benötigt einen
   normalen interaktiven Windows-Benutzerkontext.
 - `tests/Tray.Tests.dpr` prüft das VCL-TrayIcon zusammen mit FMX: Anzeigen,
-  Statuswechsel, Ausblenden, erneutes Anzeigen und Freigeben. `-diagnose`
-  beschreibt den verwendeten Windows-Desktop. In der isolierten Codex-Umgebung
-  fehlt der Shell-Infobereich; hier ist nur der sichere Fehlerpfad mit
-  `-expect-unavailable` prüfbar, nicht der positive Tray-Lauf.
+  Statuswechsel, Ausblenden, erneutes Anzeigen und Freigeben. Zusätzlich wird
+  ausschließlich das eigene Shell-Symbol entfernt und seine geprüfte
+  Wiederanmeldung samt Reparaturzähler und `TaskbarCreated` getestet. `-diagnose`
+  beschreibt den verwendeten Windows-Desktop. Der positive Tray-Lauf ist in der
+  aktuellen Umgebung bestanden; ohne Shell prüft `-expect-unavailable` den Fehlerpfad.
 - `tests/Platform.Tests.dpr` prüft die `CanShow`-Sperre für ein unsichtbares
   FMX-Fenster und stellt sicher, dass der Sammlermodus keine Abdeckfenster
   erzeugt und das Dashboard weder anzeigt noch auf einen Monitor verschiebt.
   Zusätzlich prüft es die 10-/18-Uhr-Grenzen aller Wochentage, getrennte System-
   und Display-Anforderungen, explizites Aufwecken, Resume und API-Fehler mit
   Wiederholung sowie Monitorrückkehr, Indexwechsel und vorübergehende Ersatzmonitore.
-  Power-APIs werden dabei ersetzt; der Test schaltet keine echten Monitore um.
+  Hinzu kommen zeitgesteuerte Einschaltwiederholungen, validierte Power-Meldungen,
+  native Fensterwiederherstellung, Taskleisten-Restore und Monitorgrenzen mit
+  einem physischen Pixel Abstand. Power-APIs werden ersetzt; der Test schaltet
+  keine echten Monitore um. Die Shell-Vollbildregel und das morgendliche Verhalten
+  der konkreten Monitorhardware benötigen weiterhin einen Lauf auf dem Zielrechner.
 - `tests/Codex.Smoke.dpr` ist ein optionaler Live-Test gegen eine lokal angemeldete
   Codex-CLI; `--discover` prüft nur die Programmsuche. Diese findet hier die
   Desktop-CLI auch bei reduziertem PATH. Der angemeldete Liveabruf konnte in der

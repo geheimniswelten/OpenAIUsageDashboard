@@ -19,6 +19,8 @@ type
   TDashboardTray = class
   private
     FVisible: Boolean;
+    FShowRequested: Boolean;
+    FRecoveryCount: Cardinal;
     FCollectorMode: Boolean;
     FStatus: string;
 {$IF Defined(MSWINDOWS)}
@@ -33,10 +35,15 @@ type
     constructor Create(const AOnAction: TTrayActionEvent);
     destructor Destroy; override;
     function Show(out AError: string): Boolean;
+    // Call periodically on the main thread. Explorer can lose an icon without
+    // changing VCL's Visible flag; failed registrations must also be retried.
+    // When Hide was requested, the hidden state already satisfies this call.
+    function EnsureVisible(out AError: string): Boolean;
     procedure Hide;
     procedure UpdateStatus(const AStatus: string);
     procedure SetCollectorMode(const AValue: Boolean);
     property Visible: Boolean read FVisible;
+    property RecoveryCount: Cardinal read FRecoveryCount;
   end;
 
 implementation
@@ -58,22 +65,35 @@ type
   protected
     procedure WindowProc(var Message: TMessage); override;
   public
-    function RegisterIcon(out AError: string): Boolean;
+    function RegisterIcon(out AError: string; out ARecovered: Boolean): Boolean;
     procedure UnregisterIcon;
     procedure QueueAction(const AAction: TTrayAction);
   end;
 
-function TCheckedTrayIcon.RegisterIcon(out AError: string): Boolean;
+function TCheckedTrayIcon.RegisterIcon(out AError: string;
+  out ARecovered: Boolean): Boolean;
 var
   ErrorCode: DWORD;
 begin
   AError := '';
+  ARecovered := False;
   SetLastError(ERROR_SUCCESS);
   Visible := True;
   // TCustomTrayIcon.SetVisible discards the NIM_ADD result. A successful
   // modification verifies that the Shell actually registered the icon before
   // the dashboard is allowed to hide.
   Result := Refresh(NIM_MODIFY);
+  if not Result then
+  begin
+    // Explorer may have restarted or discarded the icon. Setting Visible to
+    // True again does not send NIM_ADD while VCL still believes it is visible.
+    // Reset that flag, re-add, then verify the Shell accepted the new icon.
+    UnregisterIcon;
+    SetLastError(ERROR_SUCCESS);
+    Visible := True;
+    Result := Refresh(NIM_MODIFY);
+    ARecovered := Result;
+  end;
   if not Result then
   begin
     ErrorCode := GetLastError;
@@ -120,7 +140,8 @@ begin
     // Beenden may free this component. Do not access it after the callback.
     Exit;
   end;
-  // TTrayIcon handles its popup, click events and TaskbarCreated recovery.
+  // TTrayIcon handles its popup, click events and the first TaskbarCreated
+  // recovery attempt. EnsureVisible verifies/retries if Explorer was not ready.
   inherited;
 end;
 {$ENDIF}
@@ -175,10 +196,24 @@ end;
 
 function TDashboardTray.Show(out AError: string): Boolean;
 begin
+  FShowRequested := True;
+  Result := EnsureVisible(AError);
+end;
+
+function TDashboardTray.EnsureVisible(out AError: string): Boolean;
+{$IF Defined(MSWINDOWS)}
+var
+  Recovered: Boolean;
+{$ENDIF}
+begin
   AError := '';
+  if not FShowRequested then
+    Exit(True);
 {$IF Defined(MSWINDOWS)}
   try
-    Result := TCheckedTrayIcon(FTray).RegisterIcon(AError);
+    Result := TCheckedTrayIcon(FTray).RegisterIcon(AError, Recovered);
+    if Result and Recovered then
+      Inc(FRecoveryCount);
   except
     on E: Exception do
     begin
@@ -196,6 +231,7 @@ end;
 
 procedure TDashboardTray.Hide;
 begin
+  FShowRequested := False;
 {$IF Defined(MSWINDOWS)}
   if FTray <> nil then
     TCheckedTrayIcon(FTray).UnregisterIcon;

@@ -29,6 +29,7 @@ uses
   Dashboard.Codex,
   {$IFDEF MSWINDOWS}
     Dashboard.Tray,
+    Dashboard.Instance,
   {$IFEND}
   Dashboard.OpenAI;
 
@@ -81,6 +82,9 @@ type
       FTray: TDashboardTray;
       FCollectorMode: Boolean;
       FAllowCollectorSettings: Boolean;
+      FNextTrayCheckTick: UInt64;
+      FTrayRecoveryError: string;
+      FInstanceGuard: TDashboardInstance;
     {$IFEND}
     FWorker: TThread;
     FFetching: Boolean;
@@ -90,6 +94,9 @@ type
     FCompanionRevealUntil: TDateTime;
     FWasExternal: Boolean;
     FStarted: Boolean;
+    {$IFDEF MSWINDOWS}
+      class var FStartupInstanceGuard: TDashboardInstance;
+    {$ENDIF}
     procedure BuildUi;
     procedure BuildSettingsPanel;
     function AddSettingsField(const ACaption: string; const AEditor: TControl): TLayout;
@@ -123,6 +130,8 @@ type
       procedure ShowDashboard;
       procedure ShowCollectorSettings;
       procedure FormClosing(Sender: TObject; var Action: TCloseAction);
+      procedure RestoreFromTaskbar(Sender: TObject);
+      procedure CheckTrayRecovery;
     {$IFEND}
     procedure BeginRefresh;
     procedure ApplyRefresh(const ANewSnapshot: TUsageSnapshot; const ASuccess: Boolean; const AError: string);
@@ -134,6 +143,9 @@ type
     procedure RenderPreviewAndExit;
     procedure RenderSettingsPreviewAndExit;
   public
+    {$IFDEF MSWINDOWS}
+      class procedure AttachInstance(const AInstanceGuard: TDashboardInstance); static;
+    {$ENDIF}
     function CanShow: Boolean; override;
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
@@ -184,6 +196,12 @@ begin
     FSnapshot.MakeDemo;
   FRenderer := TDashboardRenderer.Create(FSnapshot);
   FPlatform := TPlatformCoordinator.Create(Self);
+  {$IFDEF MSWINDOWS}
+    FInstanceGuard := FStartupInstanceGuard;
+    FPlatform.OnDashboardRestore := RestoreFromTaskbar;
+    if FInstanceGuard <> nil then
+      FPlatform.LogWindowsEvent('Primary application instance acquired');
+  {$IFEND}
   BuildUi;
   FCodexClient := TCodexClient.Create;
   FPublisher := TSnapshotPublisher.Create(FSettings.ListenPort, FSettings.ViewerToken);
@@ -205,7 +223,13 @@ begin
     if not IsPreview then
     begin
       FTray := TDashboardTray.Create(TrayAction);
-      FTray.Show(ErrorText);
+      if not FTray.Show(ErrorText) then
+      begin
+        FTrayRecoveryError := ErrorText;
+        FPlatform.LogWindowsEvent('Tray registration failed: ' + ErrorText);
+      end
+      else
+        FPlatform.LogWindowsEvent('Tray registered');
       WantCollector := FSettings.StartInTray or SameText(ParamStr(1), '--collector') or FindCmdLineSwitch('collector', True);
       if WantCollector and (Key <> '') then
         EnterCollectorMode(nil);
@@ -1026,6 +1050,13 @@ begin
 end;
 
 {$IFDEF MSWINDOWS}
+class procedure TMainForm.AttachInstance(const AInstanceGuard: TDashboardInstance);
+begin
+  { FMX instantiates registered forms in Application.Run. This reference is
+    available to the constructor, and the entry point owns its lifetime. }
+  FStartupInstanceGuard := AInstanceGuard;
+end;
+
 procedure TMainForm.TrayAction(Sender: TObject; AAction: TTrayAction);
 begin
   if FClosing then
@@ -1068,14 +1099,62 @@ begin
   FPlatform.SetCollectorOnly(False);
   if FTray <> nil then
     FTray.SetCollectorMode(False);
-  WindowState := TWindowState.wsNormal;
-  FPlatform.PlaceDashboard(FSettings.DashboardDisplay);
   FStarted := True;
-  Winapi.Windows.ShowWindow(FMX.Platform.Win.ApplicationHWND, SW_SHOWNOACTIVATE);
-  Show;
-  BringToFront;
+  FPlatform.PlaceDashboard(FSettings.DashboardDisplay);
+  FPlatform.RestoreWindowsDashboard(True);
   FormResized(Self);
   RegisterInteraction;
+end;
+
+procedure TMainForm.RestoreFromTaskbar(Sender: TObject);
+begin
+  if FClosing then
+    Exit;
+  if FCollectorMode and FAllowCollectorSettings then
+  begin
+    { Restore the settings window without discarding unsaved edits. }
+    WindowState := TWindowState.wsNormal;
+    Winapi.Windows.ShowWindow(FMX.Platform.Win.ApplicationHWND, SW_SHOWNOACTIVATE);
+    Winapi.Windows.ShowWindow(FormToHWND(Self), SW_SHOWNOACTIVATE);
+    Show;
+    BringToFront;
+    SetForegroundWindow(FormToHWND(Self));
+  end
+  else
+    ShowDashboard;
+end;
+
+procedure TMainForm.CheckTrayRecovery;
+var
+  ErrorText: string;
+  WasVisible: Boolean;
+  RecoveryCount: Cardinal;
+begin
+  if FClosing or (FTray = nil) or (GetTickCount64 < FNextTrayCheckTick) then
+    Exit;
+  FNextTrayCheckTick := GetTickCount64 + 5000;
+  WasVisible := FTray.Visible;
+  RecoveryCount := FTray.RecoveryCount;
+  if FTray.EnsureVisible(ErrorText) then
+  begin
+    if (FTrayRecoveryError <> '') or not WasVisible or
+       (RecoveryCount <> FTray.RecoveryCount) then
+      FPlatform.LogWindowsEvent('Tray registration recovered');
+    FTrayRecoveryError := '';
+  end
+  else
+  begin
+    if ErrorText <> FTrayRecoveryError then
+      FPlatform.LogWindowsEvent('Tray registration failed: ' + ErrorText);
+    FTrayRecoveryError := ErrorText;
+    { Keep a usable taskbar window if the collector lost its only entry point. }
+    if FCollectorMode and not FAllowCollectorSettings then
+    begin
+      ShowCollectorSettings;
+      FMessageLabel.Text := 'Tray-Symbol wird wiederhergestellt: ' + ErrorText;
+      LayoutSettingsControls;
+    end;
+  end;
 end;
 
 procedure TMainForm.ShowCollectorSettings;
@@ -1383,6 +1462,16 @@ procedure TMainForm.TimerTick(Sender: TObject);
 var
   ExternalNow: Boolean;
 begin
+  if FClosing then
+    Exit;
+  {$IFDEF MSWINDOWS}
+    if (FInstanceGuard <> nil) and FInstanceGuard.ConsumeActivationRequest then
+    begin
+      FPlatform.LogWindowsEvent('Duplicate launch requested window restoration');
+      RestoreFromTaskbar(Self);
+    end;
+    CheckTrayRecovery;
+  {$IFEND}
   if (FWorker <> nil) and FWorker.Finished and not FFetching then
     FreeAndNil(FWorker);
   FPlatform.Tick(FSettings.KeepAwakeStartHour, FSettings.KeepAwakeEndHour, FSettings.OtherDisplayIdleMinutes);
