@@ -3,6 +3,8 @@
 #define VOS_NT_WINDOWS32 0x00040004L
 #define VFT_APP 0x00000001L
 
+MAINICON ICON "assets\\OpenAIUsageDashboard.ico"
+
 1 RT_MANIFEST "OpenAIUsageDashboard.manifest"
 
 1 VERSIONINFO

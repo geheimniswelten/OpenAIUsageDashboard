@@ -3,6 +3,7 @@
 interface
 
 uses
+  System.SysUtils,
   System.Net.HttpClient,
   Dashboard.Model;
 
@@ -32,13 +33,12 @@ type
       const ABillingDay: Integer);
     destructor Destroy; override;
     procedure Cancel;
-    function Fetch(const ASnapshot: TUsageSnapshot; out AError: string): Boolean;
+    function Fetch(const ASnapshot: TUsageSnapshot; out AError: string; const AOnCoreReady: TProc<TUsageSnapshot> = nil): Boolean;
   end;
 
 implementation
 
 uses
-  System.SysUtils,
   System.Classes,
   System.DateUtils,
   System.Math,
@@ -536,8 +536,7 @@ begin
   end;
 end;
 
-function TOpenAIUsageClient.Fetch(const ASnapshot: TUsageSnapshot;
-  out AError: string): Boolean;
+function TOpenAIUsageClient.Fetch(const ASnapshot: TUsageSnapshot; out AError: string; const AOnCoreReady: TProc<TUsageSnapshot>): Boolean;
 var
   Costs, Completions: TObject;
   UtcNow, StartDate, PeriodStart: TDateTime;
@@ -582,6 +581,16 @@ begin
       Completions.Free;
     end;
 
+    { Costs and request counts are usable before the optional service calls.
+      The callback runs on this worker and may enrich the same snapshot. }
+    ASnapshot.LastUpdated := TTimeZone.Local.ToLocalTime(UtcNow);
+    ASnapshot.SpendingLimit := FSpendingLimit;
+    ASnapshot.StatusText := 'Aktuell';
+    ASnapshot.SourceText := 'OpenAI API Platform';
+    ASnapshot.Recalculate(UtcNow);
+    if Assigned(AOnCoreReady) then
+      AOnCoreReady(ASnapshot);
+
     StartUnix := DateTimeToUnix(DateOf(UtcNow) - 6, True);
     UsageQuery := 'start_time=' + IntToStr(StartUnix) + '&bucket_width=1d&limit=7&end_time=' + IntToStr(DateTimeToUnix(UtcNow, True));
     ReadService('/organization/usage/images', 'Bilder', 'images', '', 'num_model_requests', UsageQuery, False, ASnapshot);
@@ -594,9 +603,7 @@ begin
     ReadService('/organization/usage/vector_stores', 'Vector Stores', 'usage_bytes', 'B', '', UsageQuery, True, ASnapshot);
     ReadService('/organization/usage/moderations', 'Moderation', 'input_tokens', 'Tokens', 'num_model_requests', UsageQuery, False, ASnapshot);
     TryReadSpendingLimit(ASnapshot);
-    ASnapshot.LastUpdated := TTimeZone.Local.ToLocalTime(UtcNow);
     ASnapshot.StatusText := 'Aktuell';
-    ASnapshot.SourceText := 'OpenAI API Platform';
     ASnapshot.Recalculate(UtcNow);
     Result := True;
   except

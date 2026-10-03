@@ -73,12 +73,14 @@ type
     FNextDisplayWakeTick: UInt64;
     FDisplayWakeRetryCount: Integer;
     FApplicationWindow: HWND;
+    FTaskbarVisible: Boolean;
     FOnDashboardRestore: TNotifyEvent;
     FRestoreQueued: Boolean;
     FPlacementBusy: Boolean;
     FLastWindowStatus: string;
     procedure QueueWindowsDisplayRefresh;
     procedure PlaceWindowsDashboard;
+    procedure ApplyWindowsTaskbarStyle;
     procedure CheckWindowsDisplayWake;
     procedure QueueDashboardRestore;
     function WindowsDisplayDevice(const AIndex: Integer): string;
@@ -113,6 +115,7 @@ type
     procedure PlaceDashboard(const ARequestedDisplay: Integer);
 {$IF Defined(MSWINDOWS)}
     procedure SetCollectorOnly(const AEnabled: Boolean);
+    procedure SetTaskbarVisible(const AVisible: Boolean);
     procedure RestoreWindowsDashboard(const AActivate: Boolean = False);
     procedure LogWindowsEvent(const AText: string); virtual;
     property OnDashboardRestore: TNotifyEvent read FOnDashboardRestore write FOnDashboardRestore;
@@ -206,6 +209,7 @@ begin
   if FDisplayPowerNotification = nil then
     LogWindowsEvent('Display power notification registration failed: ' + SysErrorMessage(GetLastError));
   FApplicationWindow := ApplicationHWND;
+  FTaskbarVisible := True;
   { The RTL's subclass wrappers require InitComCtl, which is initialized by
     InitCommonControlsEx. An FMX process may not have created any VCL control. }
   CommonControls.dwSize := SizeOf(CommonControls);
@@ -346,6 +350,7 @@ begin
   FMainForm.BorderStyle := TFmxFormBorderStyle.None;
   FMainForm.FormStyle := TFormStyle.StayOnTop;
   FMainForm.Position := TFormPosition.Designed;
+  ApplyWindowsTaskbarStyle;
   Screen.UpdateDisplayInformation;
   RebuildWindowsDisplays;
 {$ELSE}
@@ -677,6 +682,50 @@ begin
   FRestoreQueued := PostMessage(FMessageWindow, CDashboardRestoreMessage, 0, 0);
 end;
 
+procedure TPlatformCoordinator.ApplyWindowsTaskbarStyle;
+
+  procedure ApplyStyle(const AWindow: HWND);
+  var
+    OldStyle, NewStyle: NativeInt;
+    WasVisible, WasMinimized: Boolean;
+  begin
+    OldStyle := GetWindowLongPtr(AWindow, GWL_EXSTYLE);
+    if FTaskbarVisible then
+      NewStyle := OldStyle and not NativeInt(WS_EX_TOOLWINDOW)
+    else
+      NewStyle := (OldStyle and not NativeInt(WS_EX_APPWINDOW)) or WS_EX_TOOLWINDOW;
+    if FTaskbarVisible and (AWindow = FApplicationWindow) then
+      NewStyle := NewStyle or WS_EX_APPWINDOW;
+    if NewStyle = OldStyle then
+      Exit;
+    WasVisible := IsWindowVisible(AWindow);
+    WasMinimized := IsIconic(AWindow);
+    { The Shell needs a hide/show transition when taskbar eligibility changes. }
+    if WasVisible then
+      Winapi.Windows.ShowWindow(AWindow, SW_HIDE);
+    SetWindowLongPtr(AWindow, GWL_EXSTYLE, NewStyle);
+    SetWindowPos(AWindow, 0, 0, 0, 0, 0, SWP_NOMOVE or SWP_NOSIZE or
+      SWP_NOZORDER or SWP_NOACTIVATE or SWP_FRAMECHANGED);
+    if WasVisible then
+      if WasMinimized then
+        Winapi.Windows.ShowWindow(AWindow, SW_SHOWMINNOACTIVE)
+      else
+        Winapi.Windows.ShowWindow(AWindow, SW_SHOWNA);
+  end;
+
+begin
+  { FMX has a separate application window which owns its taskbar button. Both
+    it and the dashboard must remain tool windows while the tray is available. }
+  ApplyStyle(FApplicationWindow);
+  ApplyStyle(FormToHWND(FMainForm));
+end;
+
+procedure TPlatformCoordinator.SetTaskbarVisible(const AVisible: Boolean);
+begin
+  FTaskbarVisible := AVisible;
+  ApplyWindowsTaskbarStyle;
+end;
+
 procedure TPlatformCoordinator.RestoreWindowsDashboard(const AActivate: Boolean);
 var
   WindowHandle: HWND;
@@ -684,6 +733,7 @@ begin
   if FCollectorOnly or (not FMainForm.Visible and not FMainForm.CanShow) then
     Exit;
   FMainForm.WindowState := TWindowState.wsNormal;
+  ApplyWindowsTaskbarStyle;
   { FMX's normal state may already be cached while its native window remains
     minimized/hidden. Restore both the taskbar proxy and the real dashboard. }
   Winapi.Windows.ShowWindow(FApplicationWindow, SW_SHOWNOACTIVATE);
@@ -765,6 +815,7 @@ begin
   end;
   FPlacementBusy := True;
   try
+    ApplyWindowsTaskbarStyle;
     Display := Screen.Displays[FTargetDisplay];
     Bounds := WindowsDashboardBounds(Display);
     LogicalBounds := Display.Bounds;

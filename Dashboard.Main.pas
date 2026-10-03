@@ -67,6 +67,7 @@ type
     FLimitEdit: TEdit;
     FBillingDayEdit: TEdit;
     FDisplayCombo: TComboEdit;
+    FRefreshCombo: TComboEdit;
     FDisplayValues: TArray<Integer>;
     FIdleEdit: TEdit;
     FMessageLabel: TLabel;
@@ -127,6 +128,7 @@ type
       procedure DeleteKey(Sender: TObject);
       procedure TrayAction(Sender: TObject; AAction: TTrayAction);
       procedure EnterCollectorMode(Sender: TObject);
+      procedure ToggleDashboard;
       procedure ShowDashboard;
       procedure ShowCollectorSettings;
       procedure FormClosing(Sender: TObject; var Action: TCloseAction);
@@ -134,7 +136,9 @@ type
       procedure CheckTrayRecovery;
     {$IFEND}
     procedure BeginRefresh;
-    procedure ApplyRefresh(const ANewSnapshot: TUsageSnapshot; const ASuccess: Boolean; const AError: string);
+    procedure QueueRefreshProgress(const ANewSnapshot: TUsageSnapshot; const AStatus: string);
+    procedure ApplyRefresh(const ANewSnapshot: TUsageSnapshot; const ASuccess: Boolean;
+      const AError: string; const AComplete: Boolean = True);
     procedure StartPublisher;
     procedure UpdateExternalDisplay(const AForce: Boolean);
     {$IFDEF ANDROID}
@@ -178,10 +182,11 @@ const
   MutedColor = TAlphaColor($FF83CDB1);
 
 constructor TMainForm.Create(AOwner: TComponent);
-{$IFDEF MSWINDOWS}
 var
+  IsPreview: Boolean;
+{$IFDEF MSWINDOWS}
   Key, ErrorText: string;
-  IsPreview, WantCollector: Boolean;
+  WantCollector: Boolean;
 {$IFEND}
 begin
   inherited Create(AOwner);
@@ -192,8 +197,8 @@ begin
   FSnapshot := TUsageSnapshot.Create;
   FSettings := TDashboardSettings.Create;
   FSettings.Load;
-  if FSettings.UseDemoWhenUnavailable then
-    FSnapshot.MakeDemo;
+  IsPreview := Pos('--render-', LowerCase(ParamStr(1))) = 1;
+  FSnapshot.StatusText := 'Daten werden geladen …';
   FRenderer := TDashboardRenderer.Create(FSnapshot);
   FPlatform := TPlatformCoordinator.Create(Self);
   {$IFDEF MSWINDOWS}
@@ -219,7 +224,6 @@ begin
     if not TSecretStore.LoadAdminKey(Key, ErrorText) then
       FSettingsPanel.Visible := True;
     FKeyEdit.TextPrompt := TSecretStore.MaskAdminKey(Key);
-    IsPreview := (Pos('--render-', LowerCase(ParamStr(1))) = 1);
     if not IsPreview then
     begin
       FTray := TDashboardTray.Create(TrayAction);
@@ -230,6 +234,7 @@ begin
       end
       else
         FPlatform.LogWindowsEvent('Tray registered');
+      FPlatform.SetTaskbarVisible(not FTray.Visible);
       WantCollector := FSettings.StartInTray or SameText(ParamStr(1), '--collector') or FindCmdLineSwitch('collector', True);
       if WantCollector and (Key <> '') then
         EnterCollectorMode(nil);
@@ -241,6 +246,12 @@ begin
     if Pos('127.0.0.1', FSettings.CollectorUrl) > 0 then
       FSettingsPanel.Visible := True;
   {$IFEND}
+  if not IsPreview then
+  begin
+    { Start independently of OnShow, including a hidden collector startup. }
+    BeginRefresh;
+    FTimer.Enabled := True;
+  end;
 end;
 
 destructor TMainForm.Destroy;
@@ -299,7 +310,7 @@ begin
   FTimer := TTimer.Create(Self);
   FTimer.Interval := 1000;
   FTimer.OnTimer := TimerTick;
-  FTimer.Enabled := True;
+  FTimer.Enabled := False;
 end;
 
 function TMainForm.AddSettingsLabel(const AText: string; const AX, AY, AWidth: Single): TLabel;
@@ -471,6 +482,27 @@ begin
     AddSettingsRow([AddSettingsLabel('Android erhält die Werte vom Windows-Sammler.', 28, 54, 604)]);
   {$IFEND}
 
+  FRefreshCombo := TComboEdit.Create(FSettingsScroll);
+  FRefreshCombo.Parent := FSettingsScroll;
+  FRefreshCombo.Height := 54;
+  FRefreshCombo.ItemHeight := 50;
+  FRefreshCombo.DropDownCount := 4;
+  FRefreshCombo.StyledSettings := FRefreshCombo.StyledSettings - [TStyledSetting.Size];
+  FRefreshCombo.TextSettings.Font.Size := 21.6;
+  {$IFDEF ANDROID}
+    FRefreshCombo.StyledSettings := FRefreshCombo.StyledSettings - [TStyledSetting.FontColor];
+    FRefreshCombo.TextSettings.FontColor := TAlphaColors.White;
+  {$IFEND}
+  FRefreshCombo.Items.Add('30s');
+  FRefreshCombo.Items.Add('1m');
+  FRefreshCombo.Items.Add('5m');
+  FRefreshCombo.Items.Add('15m');
+  FRefreshCombo.Text := IntToStr(FSettings.RefreshSeconds);
+  FRefreshCombo.OnClick := SettingsInteraction;
+  FRefreshCombo.OnChange := SettingsInteraction;
+  FRefreshCombo.OnTyping := SettingsInteraction;
+  AddSettingsRow([AddSettingsField('Aktualisierung (Sekunden, 10–3600)', FRefreshCombo)]);
+
   FCollectorEdit := NewEdit;
   FCollectorEdit.Text := FSettings.CollectorUrl;
   AddSettingsRow([AddSettingsField('Schreibgeschützter Windows-Sammler', FCollectorEdit)]);
@@ -596,7 +628,6 @@ begin
   FPlatform.PlaceDashboard(FSettings.DashboardDisplay);
   PopulateDisplayChoices;
   FSettingsPanel.BringToFront;
-  BeginRefresh;
 end;
 
 procedure TMainForm.RenderPreviewAndExit;
@@ -651,6 +682,7 @@ begin
       FKeyEdit.ApplyStyleLookup;
     {$IFEND}
     FDisplayCombo.ApplyStyleLookup;
+    FRefreshCombo.ApplyStyleLookup;
     FCollectorEdit.ApplyStyleLookup;
     FViewerTokenEdit.ApplyStyleLookup;
     FLimitEdit.ApplyStyleLookup;
@@ -944,6 +976,7 @@ begin
   FSettingsPanel.Visible := not FSettingsPanel.Visible;
   if FSettingsPanel.Visible then
   begin
+    FRefreshCombo.Text := IntToStr(FSettings.RefreshSeconds);
     FCollectorEdit.Text := FSettings.CollectorUrl;
     FViewerTokenEdit.Text := FSettings.ViewerToken;
     FLimitEdit.Text := FloatToStr(FSettings.SpendingLimit);
@@ -968,12 +1001,21 @@ procedure TMainForm.SaveSettings(Sender: TObject);
 var
   FloatValue: Double;
   IntValue: Integer;
+  RefreshValue: Integer;
   {$IFDEF MSWINDOWS}
     ErrorText: string;
   {$IFEND}
 begin
   RegisterInteraction;
   FMessageLabel.TextSettings.FontColor := TextColor;
+  if not TDashboardSettings.TryParseRefreshSeconds(FRefreshCombo.Text, RefreshValue) then
+  begin
+    FMessageLabel.TextSettings.FontColor := TAlphaColor($FFFF8A80);
+    FMessageLabel.Text := 'Aktualisierung: Bitte 10 bis 3600 Sekunden eingeben oder 30s, 1m, 5m bzw. 15m auswählen.';
+    LayoutSettingsControls;
+    FRefreshCombo.SetFocus;
+    Exit;
+  end;
   {$IFDEF MSWINDOWS}
     if (FKeyEdit <> nil) and (Trim(FKeyEdit.Text) <> '') then
     begin
@@ -989,6 +1031,7 @@ begin
     end;
   {$IFEND}
   FSettings.CollectorUrl := Trim(FCollectorEdit.Text);
+  FSettings.RefreshSeconds := RefreshValue;
   FSettings.ViewerToken := FViewerTokenEdit.Text;
   if TryStrToFloat(FLimitEdit.Text, FloatValue) then
     FSettings.SpendingLimit := Max(0, FloatValue);
@@ -1062,7 +1105,7 @@ begin
   if FClosing then
     Exit;
   case AAction of
-    taShowDashboard: ShowDashboard;
+    taToggleDashboard: ToggleDashboard;
     taShowSettings: ShowCollectorSettings;
     taCollectorMode: EnterCollectorMode(Sender);
     taExit: ExitApplication(Sender);
@@ -1090,6 +1133,17 @@ begin
   Hide;
   Winapi.Windows.ShowWindow(FMX.Platform.Win.ApplicationHWND, SW_HIDE);
   { A hidden initial main form never receives OnShow. The timer starts fetching. }
+end;
+
+procedure TMainForm.ToggleDashboard;
+begin
+  if not FCollectorMode and Visible and
+     IsWindowVisible(FormToHWND(Self)) and
+     not IsIconic(FormToHWND(Self)) and
+     not IsIconic(FMX.Platform.Win.ApplicationHWND) then
+    EnterCollectorMode(nil)
+  else
+    ShowDashboard;
 end;
 
 procedure TMainForm.ShowDashboard;
@@ -1141,12 +1195,14 @@ begin
        (RecoveryCount <> FTray.RecoveryCount) then
       FPlatform.LogWindowsEvent('Tray registration recovered');
     FTrayRecoveryError := '';
+    FPlatform.SetTaskbarVisible(False);
   end
   else
   begin
     if ErrorText <> FTrayRecoveryError then
       FPlatform.LogWindowsEvent('Tray registration failed: ' + ErrorText);
     FTrayRecoveryError := ErrorText;
+    FPlatform.SetTaskbarVisible(True);
     { Keep a usable taskbar window if the collector lost its only entry point. }
     if FCollectorMode and not FAllowCollectorSettings then
     begin
@@ -1170,6 +1226,7 @@ begin
     FullScreen := False;
     FormStyle := TFormStyle.Normal;
     BorderStyle := TFmxFormBorderStyle.Sizeable;
+    FPlatform.SetTaskbarVisible((FTray = nil) or not FTray.Visible);
     WorkArea := Screen.DisplayFromPoint(Screen.MousePos).Workarea;
     WindowWidth := Min(720, Max(1, WorkArea.Width - 24));
     WindowHeight := Min(780, Max(1, WorkArea.Height - 24));
@@ -1214,6 +1271,7 @@ end;
 procedure TMainForm.BeginRefresh;
 var
   NewSnapshot: TUsageSnapshot;
+  FirstRefresh: Boolean;
   {$IFDEF MSWINDOWS}
     AdminKey, KeyError: string;
     SpendingLimit: Double;
@@ -1231,7 +1289,13 @@ begin
     FreeAndNil(FWorker);
   end;
   FFetching := True;
-  FNextRefresh := IncSecond(Now, FSettings.RefreshSeconds);
+  FirstRefresh := FSnapshot.LastUpdated = 0;
+  if FirstRefresh then
+    FSnapshot.StatusText := 'Daten werden geladen …'
+  else
+    FSnapshot.StatusText := 'Aktualisierung läuft …';
+  FPublisher.Publish(FSnapshot);
+  FPaintBox.Repaint;
   {$IFDEF MSWINDOWS}
     SpendingLimit := FSettings.SpendingLimit;
     BillingDay := FSettings.BillingDay;
@@ -1271,7 +1335,16 @@ begin
           end;
           try
             if CanFetch then
-              Success := Client.Fetch(NewSnapshot, ErrorText)
+              Success := Client.Fetch(NewSnapshot, ErrorText,
+                procedure(ACoreSnapshot: TUsageSnapshot)
+                begin
+                  if FirstRefresh then
+                    QueueRefreshProgress(ACoreSnapshot, 'Codex wird geladen …');
+                  if not FClosing then
+                    FCodexClient.Enrich(ACoreSnapshot, CodexError);
+                  if FirstRefresh then
+                    QueueRefreshProgress(ACoreSnapshot, 'Weitere Details werden geladen …');
+                end)
             else
             begin
               Success := False;
@@ -1289,7 +1362,6 @@ begin
           end;
           if Success and not FClosing then
           begin
-            FCodexClient.Enrich(NewSnapshot, CodexError);
             if CodexError <> '' then
             begin
               if NewSnapshot.CodexRateLimitsAvailable or NewSnapshot.CodexUsageAvailable then
@@ -1317,7 +1389,34 @@ begin
   FWorker.Start;
 end;
 
-procedure TMainForm.ApplyRefresh(const ANewSnapshot: TUsageSnapshot; const ASuccess: Boolean; const AError: string);
+procedure TMainForm.QueueRefreshProgress(const ANewSnapshot: TUsageSnapshot;
+  const AStatus: string);
+var
+  SnapshotJson: string;
+begin
+  { Capture an immutable copy. Removing queued events during shutdown also
+    releases the string; no snapshot object is left waiting in the queue. }
+  SnapshotJson := ANewSnapshot.ToJson;
+  TThread.ForceQueue(TThread.CurrentThread,
+    procedure
+    var
+      ProgressSnapshot: TUsageSnapshot;
+    begin
+      if FClosing then
+        Exit;
+      ProgressSnapshot := TUsageSnapshot.Create;
+      try
+        ProgressSnapshot.FromJson(SnapshotJson);
+        ProgressSnapshot.StatusText := AStatus;
+        ApplyRefresh(ProgressSnapshot, True, '', False);
+      finally
+        ProgressSnapshot.Free;
+      end;
+    end);
+end;
+
+procedure TMainForm.ApplyRefresh(const ANewSnapshot: TUsageSnapshot;
+  const ASuccess: Boolean; const AError: string; const AComplete: Boolean);
 var
   PreviousCostToday: Double;
   PreviousCodexTodayTokens, PreviousCodexSevenDayTokens, PreviousCodexMonthTokens: Int64;
@@ -1326,7 +1425,11 @@ var
   DailyCost: TDailyCost;
   I, TodayCostIndex: Integer;
 begin
-  FFetching := False;
+  if AComplete then
+  begin
+    FFetching := False;
+    FNextRefresh := IncSecond(Now, FSettings.RefreshSeconds);
+  end;
   if ASuccess then
   begin
     PreserveCostToday := False;

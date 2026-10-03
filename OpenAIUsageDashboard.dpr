@@ -2,11 +2,11 @@
 
 uses
   System.StartUpCopy,
-{$IF Defined(MSWINDOWS)}
-  System.SysUtils,
-  Winapi.Windows,
-  Dashboard.Instance in 'Dashboard.Instance.pas',
-{$ENDIF}
+  {$IF Defined(MSWINDOWS)}
+    System.SysUtils,
+    Winapi.Windows,
+    Dashboard.Instance in 'Dashboard.Instance.pas',
+  {$ENDIF}
   FMX.Forms,
   Dashboard.Codex in 'Dashboard.Codex.pas',
   Dashboard.DisplayPolicy in 'Dashboard.DisplayPolicy.pas',

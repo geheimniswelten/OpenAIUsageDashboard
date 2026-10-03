@@ -11,7 +11,7 @@ uses
   ;
 
 type
-  TTrayAction = (taShowDashboard, taShowSettings, taCollectorMode, taExit);
+  TTrayAction = (taToggleDashboard, taShowSettings, taCollectorMode, taExit);
   TTrayActionEvent = procedure(Sender: TObject; AAction: TTrayAction) of object;
 
   // The FMX application uses this wrapper on its main thread. VCL is confined
@@ -26,8 +26,8 @@ type
 {$IF Defined(MSWINDOWS)}
     FTray: TTrayIcon;
     FMenu: TPopupMenu;
+    FDashboardItem: TMenuItem;
     FCollectorItem: TMenuItem;
-    procedure TrayClick(Sender: TObject);
     procedure MenuClick(Sender: TObject);
     procedure AddMenuItem(const ACaption: string; const AAction: TTrayAction);
 {$ENDIF}
@@ -130,6 +130,11 @@ var
   Handler: TTrayActionEvent;
   Sender: TObject;
 begin
+  // Only the left double-click toggles. Handling the first button-up as well
+  // would toggle twice during one double-click and leave the window unchanged.
+  if (Message.Msg = WM_SYSTEM_TRAY_MESSAGE) and
+     (Message.LParam = WM_LBUTTONDBLCLK) then
+    QueueAction(taToggleDashboard);
   if Message.Msg = CActionMessage then
   begin
     Message.Result := 0;
@@ -149,7 +154,7 @@ end;
 constructor TDashboardTray.Create(const AOnAction: TTrayActionEvent);
 {$IF Defined(MSWINDOWS)}
 var
-  SharedIcon: HICON;
+  TrayIconHandle: HICON;
 {$ENDIF}
 begin
   inherited Create;
@@ -157,15 +162,18 @@ begin
   FTray := TCheckedTrayIcon.Create(nil);
   TCheckedTrayIcon(FTray).FActionHandler := AOnAction;
   TCheckedTrayIcon(FTray).FActionSender := Self;
-  FTray.OnClick := TrayClick;
-  SharedIcon := LoadIcon(HInstance, 'MAINICON');
-  if SharedIcon = 0 then
-    SharedIcon := LoadIcon(0, IDI_APPLICATION);
-  if SharedIcon <> 0 then
-    FTray.Icon.Handle := CopyIcon(SharedIcon);
+  { Load the native small-icon size directly so the Shell does not have to
+    shrink a large app icon, which blurs the knot and its small U badge. }
+  TrayIconHandle := LoadImage(HInstance, 'MAINICON', IMAGE_ICON,
+    GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), 0);
+  if TrayIconHandle = 0 then
+    TrayIconHandle := CopyIcon(LoadIcon(0, IDI_APPLICATION));
+  if TrayIconHandle <> 0 then
+    FTray.Icon.Handle := TrayIconHandle;
 
   FMenu := TPopupMenu.Create(nil);
-  AddMenuItem('Dashboard anzeigen', taShowDashboard);
+  AddMenuItem('Dashboard ausblenden', taToggleDashboard);
+  FDashboardItem := FMenu.Items[0];
   FMenu.Items[0].Default := True;
   AddMenuItem('Einstellungen', taShowSettings);
   AddMenuItem('Nur Sammler', taCollectorMode);
@@ -260,6 +268,10 @@ procedure TDashboardTray.SetCollectorMode(const AValue: Boolean);
 begin
   FCollectorMode := AValue;
 {$IF Defined(MSWINDOWS)}
+  if AValue then
+    FDashboardItem.Caption := 'Dashboard anzeigen'
+  else
+    FDashboardItem.Caption := 'Dashboard ausblenden';
   FCollectorItem.Checked := AValue;
 {$ENDIF}
   UpdateStatus(FStatus);
@@ -276,11 +288,6 @@ begin
   Item.Tag := Ord(AAction);
   Item.OnClick := MenuClick;
   FMenu.Items.Add(Item);
-end;
-
-procedure TDashboardTray.TrayClick(Sender: TObject);
-begin
-  TCheckedTrayIcon(FTray).QueueAction(taShowDashboard);
 end;
 
 procedure TDashboardTray.MenuClick(Sender: TObject);

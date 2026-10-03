@@ -17,6 +17,19 @@ type
     procedure Diagnose;
   end;
 
+  TActionProbe = class
+  public
+    Count: Integer;
+    LastAction: TTrayAction;
+    procedure Action(Sender: TObject; AAction: TTrayAction);
+  end;
+
+procedure TActionProbe.Action(Sender: TObject; AAction: TTrayAction);
+begin
+  Inc(Count);
+  LastAction := AAction;
+end;
+
 procedure TTrayProbe.Diagnose;
 var
   IconData: TNotifyIconData;
@@ -128,15 +141,45 @@ begin
   Check(Shell_NotifyIcon(NIM_MODIFY, @IconData), 'TaskbarCreated did not restore icon');
 end;
 
+procedure CheckDoubleClickToggle(const AProbe: TActionProbe);
+var
+  IconData: TNotifyIconData;
+  I: Integer;
+begin
+  IconData := OwnRegisteredIcon;
+  // Use the real VCL callback window and the Shell's mouse message sequence.
+  SendMessage(IconData.Wnd, WM_SYSTEM_TRAY_MESSAGE, IconData.uID, WM_LBUTTONDOWN);
+  SendMessage(IconData.Wnd, WM_SYSTEM_TRAY_MESSAGE, IconData.uID, WM_LBUTTONUP);
+  FMX.Forms.Application.ProcessMessages;
+  Check(AProbe.Count = 0, 'A single click must not consume the double-click toggle');
+  for I := 1 to 2 do
+  begin
+    SendMessage(IconData.Wnd, WM_SYSTEM_TRAY_MESSAGE, IconData.uID, WM_LBUTTONDOWN);
+    SendMessage(IconData.Wnd, WM_SYSTEM_TRAY_MESSAGE, IconData.uID, WM_LBUTTONUP);
+    SendMessage(IconData.Wnd, WM_SYSTEM_TRAY_MESSAGE, IconData.uID, WM_LBUTTONDBLCLK);
+    SendMessage(IconData.Wnd, WM_SYSTEM_TRAY_MESSAGE, IconData.uID, WM_LBUTTONUP);
+    Check(AProbe.Count = I - 1, 'Toggle must be queued outside the VCL mouse callback');
+    FMX.Forms.Application.ProcessMessages;
+    Check(AProbe.Count = I, 'Each double-click must dispatch exactly one toggle');
+    Check(AProbe.LastAction = taToggleDashboard, 'Double-click must request a dashboard toggle');
+  end;
+  SendMessage(IconData.Wnd, WM_SYSTEM_TRAY_MESSAGE, IconData.uID, WM_RBUTTONDBLCLK);
+  SendMessage(IconData.Wnd, WM_SYSTEM_TRAY_MESSAGE, IconData.uID, WM_MBUTTONDBLCLK);
+  FMX.Forms.Application.ProcessMessages;
+  Check(AProbe.Count = 2, 'Other mouse buttons must not toggle the dashboard');
+end;
+
 procedure Run;
 var
   Tray: TDashboardTray;
+  Probe: TActionProbe;
   Error: string;
 begin
   FMX.Forms.Application.Initialize;
   if FindCmdLineSwitch('diagnose') then
     DiagnoseEnvironment;
-  Tray := TDashboardTray.Create(nil);
+  Probe := TActionProbe.Create;
+  Tray := TDashboardTray.Create(Probe.Action);
   try
     Check(not Tray.Visible, 'Tray must start hidden');
     Check(Tray.EnsureVisible(Error), 'Initial hidden state must need no registration');
@@ -161,6 +204,7 @@ begin
     Check(Tray.Visible, 'Tray registration did not become visible');
     Check(Tray.RecoveryCount = 0, 'Initial registration must not count as a repair');
     CheckLostIconRecovery(Tray);
+    CheckDoubleClickToggle(Probe);
     Tray.UpdateStatus('Tray-Test');
     Tray.SetCollectorMode(True);
     FMX.Forms.Application.ProcessMessages;
@@ -176,6 +220,7 @@ begin
   finally
     // Free also deletes the second icon; no settings, API or secrets touched.
     Tray.Free;
+    Probe.Free;
   end;
 end;
 

@@ -467,7 +467,20 @@ begin
     Check(MatchedDisplay, 'Blackout form must leave one physical pixel on another monitor');
   end;
   Check(BlackFormCount = Screen.DisplayCount - 1,
-    'Coordinator must create one blackout form for each other monitor');
+    Format('Coordinator must create one blackout form for each other monitor (actual=%d expected=%d)',
+      [BlackFormCount, Screen.DisplayCount - 1]));
+end;
+
+procedure CheckTaskbarStyle(const AWindow: HWND; const AVisible: Boolean);
+var
+  Style: NativeInt;
+begin
+  Style := GetWindowLongPtr(AWindow, GWL_EXSTYLE);
+  if AVisible then
+    Check(Style and WS_EX_TOOLWINDOW = 0, 'Tray failure must restore taskbar eligibility')
+  else
+    Check((Style and WS_EX_TOOLWINDOW <> 0) and (Style and WS_EX_APPWINDOW = 0),
+      'A working tray must suppress native taskbar buttons');
 end;
 
 procedure CheckNativeDashboardRecovery;
@@ -488,10 +501,13 @@ begin
     try
       { Keep the auxiliary forms hidden while checking their native geometry. }
       Coordinator.NotifyInteraction(10);
+      Coordinator.SetTaskbarVisible(False);
       Coordinator.PlaceDashboard(-1);
       CheckNativeDashboardBounds(Form, Coordinator);
       WindowHandle := FormToHWND(Form);
       AppHandle := ApplicationHWND;
+      CheckTaskbarStyle(AppHandle, False);
+      CheckTaskbarStyle(WindowHandle, False);
       Winapi.Windows.ShowWindow(AppHandle, SW_MINIMIZE);
       Check(IsIconic(AppHandle), 'Test must minimize the FMX taskbar proxy');
       Coordinator.PlaceDashboard(-1);
@@ -501,6 +517,8 @@ begin
       Coordinator.Tick(0, 24, 10);
       Check(IsIconic(AppHandle), 'Refresh after resume must preserve taskbar minimization');
       Coordinator.RestoreWindowsDashboard;
+      CheckTaskbarStyle(AppHandle, False);
+      CheckTaskbarStyle(WindowHandle, False);
       Check(not IsIconic(AppHandle) and not IsIconic(WindowHandle) and
         IsWindowVisible(WindowHandle), 'Explicit restore must recover minimized taskbar and dashboard windows');
       CheckNativeDashboardBounds(Form, Coordinator);
@@ -542,6 +560,25 @@ begin
       Check(not IsIconic(AppHandle) and IsWindowVisible(WindowHandle),
         'Taskbar restore callback must recover the hidden dashboard');
       CheckNativeDashboardBounds(Form, Coordinator);
+      { Settings change FMX's border/style and can recreate the native handle. }
+      Coordinator.SetCollectorOnly(True);
+      Form.FormStyle := TFormStyle.Normal;
+      Form.BorderStyle := TFmxFormBorderStyle.Sizeable;
+      Coordinator.SetTaskbarVisible(False);
+      CheckTaskbarStyle(FormToHWND(Form), False);
+      Coordinator.SetCollectorOnly(False);
+      Coordinator.PlaceDashboard(-1);
+      Coordinator.RestoreWindowsDashboard;
+      WindowHandle := FormToHWND(Form);
+      CheckTaskbarStyle(AppHandle, False);
+      CheckTaskbarStyle(WindowHandle, False);
+      CheckNativeDashboardBounds(Form, Coordinator);
+      Coordinator.SetTaskbarVisible(True);
+      CheckTaskbarStyle(AppHandle, True);
+      CheckTaskbarStyle(WindowHandle, True);
+      Check(GetWindowLongPtr(AppHandle, GWL_EXSTYLE) and WS_EX_APPWINDOW <> 0,
+        'Tray failure must restore the FMX application taskbar button');
+      Coordinator.SetTaskbarVisible(False);
       Coordinator.SetCollectorOnly(True);
       Winapi.Windows.ShowWindow(WindowHandle, SW_HIDE);
       Coordinator.RestoreWindowsDashboard;

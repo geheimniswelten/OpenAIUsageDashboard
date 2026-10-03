@@ -7,12 +7,34 @@ uses
   System.Math,
   System.DateUtils,
   Dashboard.Model in '..\Dashboard.Model.pas',
+  Dashboard.Settings in '..\Dashboard.Settings.pas',
   Dashboard.Transport in '..\Dashboard.Transport.pas';
 
 procedure Check(const ACondition: Boolean; const AMessage: string);
 begin
   if not ACondition then
     raise Exception.Create(AMessage);
+end;
+
+procedure TestRefreshInterval;
+var
+  Seconds: Integer;
+  Invalid: string;
+begin
+  Check(TDashboardSettings.TryParseRefreshSeconds('30s', Seconds) and (Seconds = 30), '30s');
+  Check(TDashboardSettings.TryParseRefreshSeconds('1m', Seconds) and (Seconds = 60), '1m');
+  Check(TDashboardSettings.TryParseRefreshSeconds('5m', Seconds) and (Seconds = 300), '5m');
+  Check(TDashboardSettings.TryParseRefreshSeconds('15m', Seconds) and (Seconds = 900), '15m');
+  Check(TDashboardSettings.TryParseRefreshSeconds('75', Seconds) and (Seconds = 75),
+    'Freie Eingabe muss Sekunden verwenden.');
+  Check(TDashboardSettings.TryParseRefreshSeconds(' 2 M ', Seconds) and (Seconds = 120),
+    'Leerzeichen und Großschreibung müssen erlaubt sein.');
+  Check(TDashboardSettings.TryParseRefreshSeconds('10', Seconds) and (Seconds = 10), 'Untergrenze');
+  Check(TDashboardSettings.TryParseRefreshSeconds('3600', Seconds) and (Seconds = 3600), 'Obergrenze');
+  for Invalid in ['', '0', '-1', '9s', '3601', '61m', '9223372036854775807m', '1.5m', 'abc'] do
+    Check(not TDashboardSettings.TryParseRefreshSeconds(Invalid, Seconds),
+      'Ungültiges Intervall akzeptiert: ' + Invalid);
+  Writeln('REFRESH_INTERVAL_OK');
 end;
 
 procedure TestDailyChart;
@@ -190,6 +212,7 @@ end;
 
 begin
   try
+    TestRefreshInterval;
     RunTests;
   except
     on E: Exception do

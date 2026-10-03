@@ -47,6 +47,17 @@ NDK, Gerät und Signierung in RAD Studio eingerichtet sein. Das Manifest fordert
 Internetzugriff an, verwendet die beiden Landscape-Ausrichtungen und erlaubt für
 den hausinternen HTTP-Sammler Klartextverkehr.
 
+Das Windows-App-Icon liegt in `assets/OpenAIUsageDashboard.ico`, die bearbeitbare
+Vektorvorlage daneben als SVG. Es zeigt das ChatGPT-Grundsymbol mit rotem **U**
+auf transparentem Hintergrund und enthält 16, 20, 24, 32, 40, 48, 64, 128 und 256 Pixel
+mit 32-Bit-Farbe und Alphakanal. EXE, FMX-Fenster und Tray verwenden `MAINICON`.
+Das Tray lädt die passende kleine Größe direkt. Zusätzlich liegen eine ICNS-Datei
+mit Größen von 16 bis 1024 Pixeln einschließlich Retina-Varianten und transparente
+PNGs mit 44×44 und 150×150 Pixeln im selben Ordner. Die Projektoptionen verweisen
+für ICNS und Windows-Logos ebenfalls auf diese Dateien.
+Das Grundsymbol stammt aus den Vektor-Assets der installierten ChatGPT-App;
+das Blossom-Zeichen gehört [OpenAI](https://openai.com/brand/).
+
 ## Windows einrichten
 
 Unter Windows läuft eine Instanz pro Benutzer und Windows-Sitzung. Die Sperre
@@ -212,8 +223,11 @@ gesicherte Startoption. Alternativ kann eine Verknüpfung
 öffnet sich zunächst die Einrichtung; bei einem fehlgeschlagenen Tray-Start
 wird das Fenster nicht versteckt.
 
-Ein Linksklick auf das Tray-Symbol zeigt das Dashboard wieder an. Das Kontextmenü
-bietet **Dashboard anzeigen**, **Einstellungen**, **Nur Sammler** und **Beenden**.
+Ein linker Doppelklick auf das Tray-Symbol blendet das Dashboard abwechselnd ein
+und aus. Das Kontextmenü bietet je nach Zustand **Dashboard anzeigen** oder
+**Dashboard ausblenden** sowie **Einstellungen**, **Nur Sammler** und **Beenden**.
+Solange das Tray-Symbol verfügbar ist, erscheint auch bei sichtbarem Dashboard
+oder geöffneten Einstellungen kein zusätzlicher App-Button in der Taskleiste.
 Einstellungen lassen sich im Sammlermodus in einem normalen Fenster bearbeiten;
 Speichern, Abbrechen und das Schließen dieses Fensters kehren zum Tray zurück.
 **App beenden** bzw. **Beenden** stoppt auch den Sammler.
@@ -321,6 +335,15 @@ Ursache nicht; dann auch Prozesslaufzeit und Windows-Ereignisprotokoll prüfen.
 
 ## Einstellungen
 
+Der erste Abruf beginnt direkt beim Start, auch im Sammlermodus. Kosten und
+Anfragezahlen werden angezeigt, sobald diese Abfragen fertig sind; Codex und
+weitere Dienstdetails folgen. Währenddessen zeigt die Statuszeile den laufenden
+Abruf an. Nach Abschluss wartet das Dashboard standardmäßig fünf Minuten bis
+zur nächsten Runde (`RefreshSeconds=300`).
+In den Einstellungen lässt sich das Intervall als Sekundenwert frei eingeben
+(10–3600 Sekunden) oder über `30s`, `1m`, `5m`, `15m` auswählen. Speichern übernimmt
+die Auswahl; „Jetzt aktualisieren“ bleibt für einen sofortigen Abruf verfügbar.
+
 Unkritische Einstellungen liegen pro Nutzer in
 `Dokumente\OpenAIUsageDashboard.ini`. Dort können bei Bedarf auch diese Werte
 angepasst werden:
@@ -330,7 +353,7 @@ angepasst werden:
 ListenPort=8787
 
 [Usage]
-RefreshSeconds=30
+RefreshSeconds=300
 UseDemoWhenUnavailable=1
 
 [Display]
@@ -395,5 +418,5 @@ SDK-/NDK-Toolchain und Signierung erzeugt.
 
 Ein linker Doppelklick auf die Dashboard-Fläche aktiviert den vorhandenen
 Sammler-/Tray-Modus. Das Fenster wird ausgeblendet, die Abfragen laufen weiter.
-Über das Tray-Menü lässt sich das Dashboard wieder anzeigen. Das Einstellungssymbol
+Per Tray-Doppelklick oder Tray-Menü lässt sich das Dashboard ein- und ausblenden. Das Einstellungssymbol
 und das geöffnete Einstellungsfenster sind von dieser Aktion ausgenommen.

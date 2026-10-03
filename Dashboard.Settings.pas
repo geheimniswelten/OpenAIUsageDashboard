@@ -20,6 +20,7 @@ type
     KeepAwakeEndHour: Integer;
     UseDemoWhenUnavailable: Boolean;
     constructor Create;
+    class function TryParseRefreshSeconds(const AText: string; out ASeconds: Integer): Boolean; static;
     procedure Load;
     procedure Save;
     property FileName: string read FFileName;
@@ -44,11 +45,38 @@ begin
   StartInTray := False;
   SpendingLimit := 0;
   BillingDay := 1;
-  RefreshSeconds := 30;
+  RefreshSeconds := 300;
   OtherDisplayIdleMinutes := 10;
   KeepAwakeStartHour := 10;
   KeepAwakeEndHour := 18;
   UseDemoWhenUnavailable := True;
+end;
+
+class function TDashboardSettings.TryParseRefreshSeconds(const AText: string;
+  out ASeconds: Integer): Boolean;
+var
+  Value: string;
+  Number: Int64;
+  Multiplier: Integer;
+begin
+  ASeconds := 0;
+  Value := LowerCase(Trim(AText));
+  Multiplier := 1;
+  if Value.EndsWith('m') then
+  begin
+    Multiplier := 60;
+    Delete(Value, Length(Value), 1);
+  end
+  else if Value.EndsWith('s') then
+    Delete(Value, Length(Value), 1);
+  Result := TryStrToInt64(Trim(Value), Number);
+  if not Result then
+    Exit;
+  Result := (Number >= 1) and (Number <= 3600 div Multiplier);
+  if not Result then
+    Exit;
+  ASeconds := Number * Multiplier;
+  Result := ASeconds >= 10;
 end;
 
 procedure TDashboardSettings.Load;

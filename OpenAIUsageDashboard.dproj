@@ -90,8 +90,10 @@
         <DCC_S>false</DCC_S>
         <DCC_F>false</DCC_F>
         <DCC_K>false</DCC_K>
-        <Icon_MainIcon>$(BDS)\bin\delphi_PROJECTICON.ico</Icon_MainIcon>
-        <Icns_MainIcns>$(BDS)\bin\delphi_PROJECTICNS.icns</Icns_MainIcns>
+        <Icon_MainIcon>assets\OpenAIUsageDashboard.ico</Icon_MainIcon>
+        <Icns_MainIcns>assets\OpenAIUsageDashboard.icns</Icns_MainIcns>
+        <UWP_DelphiLogo44>assets\OpenAIUsageDashboard-44.png</UWP_DelphiLogo44>
+        <UWP_DelphiLogo150>assets\OpenAIUsageDashboard-150.png</UWP_DelphiLogo150>
         <AUP_ACCESS_COARSE_LOCATION>true</AUP_ACCESS_COARSE_LOCATION>
         <AUP_ACCESS_FINE_LOCATION>true</AUP_ACCESS_FINE_LOCATION>
         <AUP_CALL_PHONE>true</AUP_CALL_PHONE>
@@ -148,6 +150,10 @@
         <Android_NotificationIcon96>$(BDS)\bin\Artwork\Android\FM_NotificationIcon_96x96.png</Android_NotificationIcon96>
         <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
         <VerInfo_Keys>package=de.hausintern.openaiusage;label=OpenAI Usage Dashboard;versionCode=1;versionName=1.0.0;persistent=False;restoreAnyVersion=False;installLocation=auto;largeHeap=False;theme=TitleBar;hardwareAccelerated=true;apiKey=;minSdkVersion=24;targetSdkVersion=36</VerInfo_Keys>
+        <VerInfo_Build>1</VerInfo_Build>
+        <Android_BackgroundColor>#FFFFFF</Android_BackgroundColor>
+        <Android_DarkBackgroundColor>#000000</Android_DarkBackgroundColor>
+        <Android_NotificationAccentColor>#000000</Android_NotificationAccentColor>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Base_Win32)'!=''">
         <DCC_Namespace>Winapi;System.Win;Data.Win;Datasnap.Win;Web.Win;Soap.Win;Xml.Win;Bde;$(DCC_Namespace)</DCC_Namespace>
@@ -156,13 +162,12 @@
         <VerInfo_Keys>CompanyName=;FileDescription=$(MSBuildProjectName);FileVersion=1.0.0.0;InternalName=;LegalCopyright=;LegalTrademarks=;OriginalFilename=;ProgramID=com.embarcadero.$(MSBuildProjectName);ProductName=$(MSBuildProjectName);ProductVersion=1.0.0.0;Comments=</VerInfo_Keys>
         <VerInfo_Locale>1033</VerInfo_Locale>
         <Manifest_File>$(BDS)\bin\default_app.manifest</Manifest_File>
-        <UWP_DelphiLogo44>$(BDS)\bin\Artwork\Windows\UWP\delphi_UwpDefault_44.png</UWP_DelphiLogo44>
-        <UWP_DelphiLogo150>$(BDS)\bin\Artwork\Windows\UWP\delphi_UwpDefault_150.png</UWP_DelphiLogo150>
+        <UWP_DelphiLogo44>assets\OpenAIUsageDashboard-44.png</UWP_DelphiLogo44>
+        <UWP_DelphiLogo150>assets\OpenAIUsageDashboard-150.png</UWP_DelphiLogo150>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Base_Win64)'!=''">
         <DCC_Namespace>Winapi;System.Win;Data.Win;Datasnap.Win;Web.Win;Soap.Win;Xml.Win;$(DCC_Namespace)</DCC_Namespace>
         <Manifest_File>$(BDS)\bin\default_app.manifest</Manifest_File>
-        <Icon_MainIcon>$(BDS)\bin\delphi_PROJECTICON.ico</Icon_MainIcon>
         <AppDPIAwarenessMode>PerMonitorV2</AppDPIAwarenessMode>
         <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
         <VerInfo_Locale>1031</VerInfo_Locale>
@@ -211,7 +216,6 @@
         </DelphiCompile>
         <DCCReference Include="Dashboard.Codex.pas"/>
         <DCCReference Include="Dashboard.DisplayPolicy.pas"/>
-        <DCCReference Include="Dashboard.Instance.pas"/>
         <DCCReference Include="Dashboard.Model.pas"/>
         <DCCReference Include="Dashboard.OpenAI.pas"/>
         <DCCReference Include="Dashboard.Platform.pas"/>
@@ -227,6 +231,23 @@
         <None Include="AndroidManifest.template.xml"/>
         <None Include="OpenAIUsageDashboard.manifest"/>
         <None Include="OpenAIUsageDashboard.rc"/>
+        <None Include="assets\OpenAIUsageDashboard.ico">
+            <ResourceType>ICON</ResourceType>
+            <ResourceId>Icon_1</ResourceId>
+        </None>
+        <None Include="assets\OpenAIUsageDashboard.svg">
+            <ResourceType>RCDATA</ResourceType>
+            <ResourceId>SvgImage_1</ResourceId>
+        </None>
+        <None Include="assets\OpenAIUsageDashboard.icns"/>
+        <None Include="assets\OpenAIUsageDashboard-44.png">
+            <ResourceType>RCDATA</ResourceType>
+            <ResourceId>PngImage_1</ResourceId>
+        </None>
+        <None Include="assets\OpenAIUsageDashboard-150.png">
+            <ResourceType>RCDATA</ResourceType>
+            <ResourceId>PngImage_2</ResourceId>
+        </None>
         <None Include="README.md"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>

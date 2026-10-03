@@ -21,6 +21,7 @@ type
     CostQuery, CompletionQuery, ServiceQuery: string;
     CostResponse, CompletionResponse, SpendingLimitResponse: string;
     VectorStoresResponse: string;
+    DetailRequests: Integer;
   protected
     function CurrentUtcTime: TDateTime; override;
     function RequestJson(const APath, AQuery: string): string; override;
@@ -42,6 +43,8 @@ var
   TodayStart, YesterdayStart, FirstStart, WeekStart: string;
   TodayResults: string;
 begin
+  if not MathStr(APath, ['/organization/costs', '/organization/usage/completions']) then
+    Inc(DetailRequests);
   if (APath = '/organization/costs') and (CostResponse <> '') then
     Exit(CostResponse);
   if (APath = '/organization/usage/completions') and (CompletionResponse <> '') then
@@ -106,6 +109,61 @@ begin
     if APath = '/organization/usage/images' then
       ServiceQuery := AQuery;
     Result := '{"data":[],"has_more":false}';
+  end;
+end;
+
+procedure RunCoreProgressTests;
+var
+  Client: TFixtureClient;
+  Snapshot, EarlySnapshot: TUsageSnapshot;
+  ErrorText: string;
+  CallbackCount: Integer;
+begin
+  Client := TFixtureClient.Create('offline-fixture', 30, 1);
+  Snapshot := TUsageSnapshot.Create;
+  EarlySnapshot := TUsageSnapshot.Create;
+  try
+    Client.UtcNow := EncodeDateTime(2026, 9, 29, 12, 0, 0, 0);
+    CallbackCount := 0;
+    Check(Client.Fetch(Snapshot, ErrorText,
+      procedure(ACore: TUsageSnapshot)
+      begin
+        Inc(CallbackCount);
+        Check(Client.DetailRequests = 0,
+          'Core results must be published before any optional requests.');
+        Check(ACore.CostTodayAvailable and (ACore.RequestsToday = 54),
+          'Early results must contain costs and all paginated request counts.');
+        Check((ACore.LastUpdated > 0) and SameValue(ACore.SpendingLimit, 30),
+          'Early results need their timestamp and configured spending limit.');
+        EarlySnapshot.FromJson(ACore.ToJson);
+        ACore.CodexLifetimeAvailable := True;
+        ACore.CodexLifetimeTokens := 123456789;
+        ACore.SourceText := ACore.SourceText + ' · Codex';
+      end), 'Progress fetch failed: ' + ErrorText);
+    Check(CallbackCount = 1, 'Core results must be delivered exactly once.');
+    Check((Client.DetailRequests = 9) and (Length(Snapshot.Services) = 9),
+      'Optional service requests must still complete after core delivery.');
+    Check(Length(EarlySnapshot.Services) = 0,
+      'The displayed early snapshot must be independent of later changes.');
+    Check(Snapshot.CodexLifetimeAvailable and
+      (Snapshot.CodexLifetimeTokens = 123456789) and
+      (Pos('Codex', Snapshot.SourceText) > 0),
+      'Final API details must preserve the added Codex data.');
+
+    CallbackCount := 0;
+    Client.CompletionResponse := '{"data":42}';
+    Check(not Client.Fetch(Snapshot, ErrorText,
+      procedure(ACore: TUsageSnapshot)
+      begin
+        Inc(CallbackCount);
+      end), 'Invalid core data must fail.');
+    Check(CallbackCount = 0,
+      'Incomplete core data must not be delivered as a successful result.');
+    Writeln('OPENAI_CORE_PROGRESS_OK');
+  finally
+    EarlySnapshot.Free;
+    Snapshot.Free;
+    Client.Free;
   end;
 end;
 
@@ -415,6 +473,7 @@ begin
   try
     RunTests;
     RunJsonShapeTests;
+    RunCoreProgressTests;
   except
     on E: Exception do
     begin
