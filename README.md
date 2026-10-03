@@ -58,6 +58,22 @@ für ICNS und Windows-Logos ebenfalls auf diese Dateien.
 Das Grundsymbol stammt aus den Vektor-Assets der installierten ChatGPT-App;
 das Blossom-Zeichen gehört [OpenAI](https://openai.com/brand/).
 
+Die Android-Grafiken liegen in `assets/android` und sind für Android und Android64
+in allen Konfigurationen eingetragen, einschließlich der Deployment-Pfade:
+
+- Transparente Legacy-Launcher-PNGs: 36, 48, 72, 96, 144 und 192 Pixel.
+- Aktiviertes adaptives Icon: Vordergrund mit dem gleichen Motiv, hellgrauer
+  Hintergrund und eine weiße Alphamaske für monochrome/thematische Icons.
+  Die drei Ebenen sind jeweils 432×432 Pixel groß (108 dp bei xxxhdpi);
+  das vollständige Motiv bleibt innerhalb der geschützten 66-dp-Kreisfläche.
+- Weiße Benachrichtigungssymbole mit transparentem Hintergrund: 24, 36, 48,
+  72 und 96 Pixel. Android übernimmt die Einfärbung.
+- Transparente Startbilder: 426×320, 470×320, 640×480 und 960×720 Pixel
+  mit dem eigenen Motiv anstelle des Delphi-Standardsymbols.
+
+Nach einer externen Änderung der Projektdateien das Projekt in RAD Studio neu
+laden, damit die Symbol- und Bereitstellungsdialoge die neuen Pfade übernehmen.
+
 ## Windows einrichten
 
 Unter Windows läuft eine Instanz pro Benutzer und Windows-Sitzung. Die Sperre
