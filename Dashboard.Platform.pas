@@ -72,6 +72,7 @@ type
     FDisplayPowerState: Integer;
     FNextDisplayWakeTick: UInt64;
     FDisplayWakeRetryCount: Integer;
+    FDisplayOnSinceTick: UInt64;
     FApplicationWindow: HWND;
     FTaskbarVisible: Boolean;
     FOnDashboardRestore: TNotifyEvent;
@@ -108,6 +109,8 @@ type
     function WindowsTick: UInt64; virtual;
     function ApplyWindowsExecutionState(const AFlags: EXECUTION_STATE): Boolean; virtual;
     procedure WakeWindowsDisplays; virtual;
+    function SendWindowsWakeInput: Boolean; virtual;
+    procedure RequestWindowsDisplayPower; virtual;
 {$ENDIF}
   public
     constructor Create(const AMainForm: TCommonCustomForm);
@@ -155,6 +158,7 @@ uses
 {$IF Defined(MSWINDOWS)}
 const
   CDashboardRestoreMessage = WM_APP + $473;
+  CDisplayOnStableMilliseconds = 30000;
 
 function DashboardApplicationProc(AWindow: HWND; AMessage: UINT;
   AWParam: WPARAM; ALParam: LPARAM; ASubclassId: UINT_PTR;
@@ -568,12 +572,19 @@ var
 begin
   if not FKeepAwake or FCollectorOnly or (FNextDisplayWakeTick = 0) then
     Exit;
+  NowTick := WindowsTick;
   if FDisplayPowerState = 1 then
   begin
-    FNextDisplayWakeTick := 0;
+    { A one-second on/off pulse is not a successful wake. Retain the retry
+      budget/deadline until Windows has continuously reported on for 30 seconds. }
+    if NowTick - FDisplayOnSinceTick >= CDisplayOnStableMilliseconds then
+    begin
+      FNextDisplayWakeTick := 0;
+      FDisplayWakeRetryCount := 0;
+      LogWindowsEvent('Display wake confirmed: Windows reported on for 30 seconds');
+    end;
     Exit;
   end;
-  NowTick := WindowsTick;
   if NowTick < FNextDisplayWakeTick then
     Exit;
   Inc(FDisplayWakeRetryCount);
@@ -646,18 +657,28 @@ begin
           Move(Setting.Data[0], State, SizeOf(State));
           if State <= 2 then
           begin
-            FDisplayPowerState := State;
-            LogWindowsEvent(Format('Windows display power state=%d (0=off, 1=on, 2=dim)', [State]));
             if State = 1 then
             begin
-              FNextDisplayWakeTick := 0;
+              if FDisplayPowerState <> 1 then
+                FDisplayOnSinceTick := WindowsTick;
               QueueWindowsDisplayRefresh;
             end
-            else if FKeepAwake and not FCollectorOnly and (FNextDisplayWakeTick = 0) then
+            else
             begin
-              FDisplayWakeRetryCount := 0;
-              FNextDisplayWakeTick := WindowsTick + 5000;
+              { Only a sustained on period starts a fresh retry sequence.
+                Brief on/off transitions must not defeat the one-minute backoff. }
+              if (FDisplayPowerState = 1) and
+                 (WindowsTick - FDisplayOnSinceTick >= CDisplayOnStableMilliseconds) then
+              begin
+                FDisplayWakeRetryCount := 0;
+                FNextDisplayWakeTick := 0;
+              end;
+              FDisplayOnSinceTick := 0;
+              if FKeepAwake and not FCollectorOnly and (FNextDisplayWakeTick = 0) then
+                FNextDisplayWakeTick := WindowsTick + 5000;
             end;
+            FDisplayPowerState := State;
+            LogWindowsEvent(Format('Windows display power state=%d (0=off, 1=on, 2=dim)', [State]));
           end;
         end;
       end
@@ -754,11 +775,33 @@ begin
   LogWindowsEvent('Dashboard explicitly restored');
 end;
 
+function TPlatformCoordinator.SendWindowsWakeInput: Boolean;
+var
+  Input: TInput;
+begin
+  { SC_MONITORPOWER alone can briefly enable output while the interactive
+    session remains idle. A zero-distance mouse event provides an activity
+    pulse without moving the pointer, clicking or generating a keypress. }
+  FillChar(Input, SizeOf(Input), 0);
+  Input.Itype := INPUT_MOUSE;
+  Input.mi.dwFlags := MOUSEEVENTF_MOVE;
+  Result := SendInput(1, Input, SizeOf(Input)) = 1;
+end;
+
+procedure TPlatformCoordinator.RequestWindowsDisplayPower;
+begin
+  { Use our own window so an unresponsive application cannot block a broadcast. }
+  DefWindowProc(FMessageWindow, WM_SYSCOMMAND, SC_MONITORPOWER, -1);
+end;
+
 procedure TPlatformCoordinator.WakeWindowsDisplays;
 begin
-  { Keep the idle timer reset AND explicitly request display power-on. Use our
-    own window's default procedure, so no broadcast can block on another app. }
-  DefWindowProc(FMessageWindow, WM_SYSCOMMAND, SC_MONITORPOWER, -1);
+  if FDisplayPowerState <> 1 then
+    if SendWindowsWakeInput then
+      LogWindowsEvent('Display wake activity sent (SendInput mouse move 0,0)')
+    else
+      LogWindowsEvent('Display wake activity failed (SendInput); error=' + IntToStr(GetLastError));
+  RequestWindowsDisplayPower;
   LogWindowsEvent('Display power-on requested (SC_MONITORPOWER -1)');
   QueueWindowsDisplayRefresh;
 end;

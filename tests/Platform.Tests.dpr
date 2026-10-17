@@ -30,6 +30,9 @@ type
     AppliedFlags: EXECUTION_STATE;
     ApplyCount: Integer;
     WakeCount: Integer;
+    WakeInputCount: Integer;
+    PowerCommandCount: Integer;
+    FailWakeInput: Boolean;
     FailNextRequest: Boolean;
     UseFakeTick: Boolean;
     FakeTick: UInt64;
@@ -38,6 +41,8 @@ type
     function WindowsTick: UInt64; override;
     function ApplyWindowsExecutionState(const AFlags: EXECUTION_STATE): Boolean; override;
     procedure WakeWindowsDisplays; override;
+    function SendWindowsWakeInput: Boolean; override;
+    procedure RequestWindowsDisplayPower; override;
     procedure LogWindowsEvent(const AText: string); override;
     procedure SetDisplayAwake(const AEnabled: Boolean);
     procedure Resume;
@@ -81,6 +86,18 @@ end;
 procedure TTestCoordinator.WakeWindowsDisplays;
 begin
   Inc(WakeCount);
+  inherited WakeWindowsDisplays;
+end;
+
+function TTestCoordinator.SendWindowsWakeInput: Boolean;
+begin
+  Inc(WakeInputCount);
+  Result := not FailWakeInput;
+end;
+
+procedure TTestCoordinator.RequestWindowsDisplayPower;
+begin
+  Inc(PowerCommandCount);
   if ReportOnDuringWake then
     ReportDisplayStatus(1);
 end;
@@ -375,16 +392,105 @@ begin
     Coordinator.SetDisplayAwake(True);
     Check(Coordinator.WakeCount = 1,
       'Synchronous display-on confirmation during initial wake must cancel retries');
+    Coordinator.FakeTick := 31000;
+    Coordinator.SetDisplayAwake(True);
     Coordinator.ReportOnDuringWake := False;
     Coordinator.ReportDisplayStatus(0);
     Coordinator.ReportOnDuringWake := True;
-    Coordinator.FakeTick := 11000;
+    Coordinator.FakeTick := 36000;
     Coordinator.SetDisplayAwake(True);
     Check(Coordinator.WakeCount = 2, 'Off notification must wake again after five seconds');
-    Coordinator.FakeTick := 16000;
+    Coordinator.FakeTick := 41000;
     Coordinator.SetDisplayAwake(True);
     Check(Coordinator.WakeCount = 2,
-      'Synchronous display-on confirmation during a retry must cancel further retries');
+      'Synchronous display-on confirmation during a retry must suppress further retries');
+  finally
+    Coordinator.Free;
+  end;
+end;
+
+procedure CheckFlappingDisplayWake(const AForm: TForm);
+var
+  Coordinator: TTestCoordinator;
+  I: Integer;
+begin
+  Coordinator := CreateClockedCoordinator(AForm);
+  try
+    Coordinator.ReportDisplayStatus(0);
+    Coordinator.ReportOnDuringWake := True;
+    Coordinator.SetDisplayAwake(True);
+    { Replay the log: every wake reports on synchronously, then off a second later. }
+    for I := 1 to 3 do
+    begin
+      Coordinator.FakeTick := 2000 + UInt64(I - 1) * 5000;
+      Coordinator.ReportDisplayStatus(0);
+      Coordinator.FakeTick := 1000 + UInt64(I) * 5000;
+      Coordinator.SetDisplayAwake(True);
+      Check(Coordinator.WakeCount = I + 1, 'Short on pulses must preserve the fast retry budget');
+    end;
+    Coordinator.FakeTick := 17000;
+    Coordinator.ReportDisplayStatus(0);
+    Coordinator.FakeTick := 75999;
+    Coordinator.SetDisplayAwake(True);
+    Check(Coordinator.WakeCount = 4, 'Flapping must back off after three retries');
+    Coordinator.FakeTick := 76000;
+    Coordinator.SetDisplayAwake(True);
+    Check(Coordinator.WakeCount = 5, 'Flapping must retry after sixty seconds');
+    Coordinator.FakeTick := 77000;
+    Coordinator.ReportDisplayStatus(0);
+    Coordinator.FakeTick := 135999;
+    Coordinator.SetDisplayAwake(True);
+    Check(Coordinator.WakeCount = 5, 'Another short on pulse must retain the slow interval');
+    Coordinator.FakeTick := 136000;
+    Coordinator.SetDisplayAwake(True);
+    Check(Coordinator.WakeCount = 6, 'Slow recovery retries must continue');
+    Coordinator.FakeTick := 150000;
+    Coordinator.ReportDisplayStatus(1); { Duplicate notifications must not restart stability timing. }
+    Coordinator.FakeTick := 166000;
+    Coordinator.SetDisplayAwake(True);
+    Coordinator.ReportDisplayStatus(0);
+    Coordinator.FakeTick := 170999;
+    Coordinator.SetDisplayAwake(True);
+    Check(Coordinator.WakeCount = 6, 'New outage after stable on waits five seconds');
+    Coordinator.FakeTick := 171000;
+    Coordinator.SetDisplayAwake(True);
+    Check(Coordinator.WakeCount = 7, 'Stable on must reset the retry budget');
+    Coordinator.FakeTick := 172000;
+    Coordinator.ReportDisplayStatus(0);
+    Coordinator.FakeTick := 176000;
+    Coordinator.SetDisplayAwake(True);
+    Check(Coordinator.WakeCount = 8, 'New outage must have fast retries again');
+  finally
+    Coordinator.Free;
+  end;
+end;
+
+procedure CheckWakeActivity(const AForm: TForm);
+var
+  Coordinator: TTestCoordinator;
+begin
+  Coordinator := CreateClockedCoordinator(AForm);
+  try
+    Coordinator.ReportDisplayStatus(0);
+    Coordinator.SetDisplayAwake(False);
+    Check(Coordinator.WakeInputCount = 0, 'No synthetic activity outside the display schedule');
+    Coordinator.SetDisplayAwake(True);
+    Check((Coordinator.WakeInputCount = 1) and (Coordinator.PowerCommandCount = 1),
+      'Morning wake must send activity and an explicit display command');
+    Coordinator.ReportDisplayStatus(1);
+    Coordinator.Resume;
+    Coordinator.SetDisplayAwake(True);
+    Check(Coordinator.WakeInputCount = 1, 'Known-on display must not receive synthetic activity');
+    Coordinator.ReportDisplayStatus(0);
+    Coordinator.FailWakeInput := True;
+    Coordinator.FakeTick := 6000;
+    Coordinator.SetDisplayAwake(True);
+    Check((Coordinator.WakeInputCount = 2) and (Coordinator.PowerCommandCount = 3),
+      'Blocked input must not prevent the independent monitor power command');
+    Coordinator.SetCollectorOnly(True);
+    Coordinator.FakeTick := 180000;
+    Coordinator.SetDisplayAwake(True);
+    Check(Coordinator.WakeInputCount = 2, 'Collector must not inject wake activity');
   finally
     Coordinator.Free;
   end;
@@ -608,6 +714,8 @@ begin
     CheckPowerTransitions(Form);
     CheckDisplayWakeRetries(Form);
     CheckDisplayWakeCancellation(Form);
+    CheckFlappingDisplayWake(Form);
+    CheckWakeActivity(Form);
     Form.SetBounds(17, 23, 320, 200);
     Form.Show;
     Check(not Form.Visible, 'CanShow must suppress the initial FMX window');

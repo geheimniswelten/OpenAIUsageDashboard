@@ -291,7 +291,12 @@ die Touchflächen oder Schrift zu verkleinern.
   Windows die Monitore nach seinem normalen Timeout ausschalten darf. Beim
   Eintritt ins Zeitfenster und nach Resume innerhalb des Zeitfensters wird
   zusätzlich `WM_SYSCOMMAND / SC_MONITORPOWER / -1` an die Standard-Fensterprozedur
-  des eigenen Nachrichtenfensters übergeben. Es werden keine Eingaben simuliert.
+  des eigenen Nachrichtenfensters übergeben. Wenn Windows den Bildschirm nicht
+  bereits als eingeschaltet meldet, wird zuvor ein einzelnes `SendInput`-Mausereignis
+  mit relativer Bewegung `(0,0)` gesendet. Dieser Aktivitätsimpuls bewegt den Zeiger
+  nicht und erzeugt weder Klicks noch Tastendrücke; er soll das sofortige erneute
+  Abschalten einer weiterhin inaktiven Sitzung vermeiden. Ein blockierter Impuls
+  wird protokolliert; der Monitor-Einschaltbefehl wird trotzdem ausgeführt.
   Im reinen Sammlermodus gilt weiterhin die bisherige Regel: nur tagsüber den PC
   wachhalten, keine Bildschirm-Anforderung. Beim Beenden werden alle Anforderungen
   freigegeben. Manuelles Schlafen, ausgeschaltete Hardware und getrennte Kabel
@@ -300,8 +305,11 @@ die Touchflächen oder Schrift zu verkleinern.
   gemeldeten Zustand `off`, `on` oder `dim`. Beim Eintritt in die Wachzeit werden
   nicht bestätigte Einschaltanforderungen nach fünf, zehn und fünfzehn Sekunden
   wiederholt. Meldet Windows weiterhin `off` oder `dim`, folgen während der
-  Wachzeit Versuche im Abstand von einer Minute. Ein `on`-Ereignis beendet die
-  Wiederholungen und prüft die Fensterplatzierung erneut. Ohne Zustandsmeldung
+  Wachzeit Versuche im Abstand von einer Minute. Ein `on`-Ereignis unterdrückt
+  weitere Einschaltbefehle und prüft die Fensterplatzierung erneut. Erst nach
+  30 Sekunden durchgehend `on` gelten die Wiederholungen als abgeschlossen.
+  Kurze `on/off`-Wechsel behalten Zähler und Wiederholungstermin, damit sie die
+  Minutenpause nicht ständig auf fünf Sekunden zurücksetzen. Ohne Zustandsmeldung
   bleiben die Wiederholungen auf drei begrenzt. Außerhalb der Wachzeit und im
   Sammlermodus erfolgen keine Bildschirm-Einschaltversuche.
 - Windows: Dashboard und schwarze Abdeckfenster lassen am unteren Monitorrand
@@ -323,16 +331,17 @@ die Touchflächen oder Schrift zu verkleinern.
 - Android: `FLAG_KEEP_SCREEN_ON` wird im selben Zeitfenster dynamisch auf Activity
   und Presentation gesetzt beziehungsweise entfernt.
 
-Im vorliegenden Protokoll vom 1. Oktober 2026 stehen die Wachhalteanforderung
-und der Einschaltbefehl um 10:00:00; trotzdem meldete der Benutzer nach 10 Uhr
-schwarze Monitore und ein nicht wiederherstellbares Fenster. Die bisherigen Logs
-unterscheiden Monitor-Standby nicht von schwarzen Abdeckfenstern bei verlorenem
-Dashboard. Die zusätzlichen Zustandsmeldungen helfen beim nächsten Lauf, beide
-Fälle auseinanderzuhalten. Die Gerätezuordnung bei kurzzeitigem Monitorverlust
-bleibt erhalten.
+Die Protokolle vom 7./8. Oktober 2026 zeigen nach jedem Einschaltbefehl nur etwa
+eine Sekunde `on`, dann wieder `off`. Dadurch startete die bisherige Logik ständig
+erneut mit `retry=1`; die vorgesehene Minutenpause wurde nie erreicht. Die neue
+Stabilitätsprüfung verhindert diese Schleife. Der zusätzliche Aktivitätsimpuls
+adressiert den beobachteten Unterschied zum erfolgreichen Aufwecken per Maus oder
+Tastatur. Die physische Wirkung muss auf dem betroffenen PC geprüft werden;
+Windows-Meldungen allein bestätigen weiterhin kein sichtbares Monitorsignal.
 
 Windows-API-Referenzen: [SetThreadExecutionState](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-setthreadexecutionstate),
 [SC_MONITORPOWER](https://learn.microsoft.com/en-us/windows/win32/menurc/wm-syscommand),
+[SendInput](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-sendinput),
 [WM_DISPLAYCHANGE](https://learn.microsoft.com/en-us/windows/win32/gdi/wm-displaychange),
 [Monitor-Gerätekennung](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-enumdisplaydevicesw),
 [Displayzustandsmeldungen](https://learn.microsoft.com/en-us/windows/win32/power/power-setting-guids),

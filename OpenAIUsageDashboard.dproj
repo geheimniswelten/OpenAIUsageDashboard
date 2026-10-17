@@ -256,24 +256,78 @@
             <ResourceType>RCDATA</ResourceType>
             <ResourceId>PngImage_2</ResourceId>
         </None>
-        <None Include="assets\android\ic_launcher_background.png"/>
-        <None Include="assets\android\ic_launcher_foreground.png"/>
-        <None Include="assets\android\ic_launcher_monochrome.png"/>
-        <None Include="assets\android\launcher-144.png"/>
-        <None Include="assets\android\launcher-192.png"/>
-        <None Include="assets\android\launcher-36.png"/>
-        <None Include="assets\android\launcher-48.png"/>
-        <None Include="assets\android\launcher-72.png"/>
-        <None Include="assets\android\launcher-96.png"/>
-        <None Include="assets\android\notification-24.png"/>
-        <None Include="assets\android\notification-36.png"/>
-        <None Include="assets\android\notification-48.png"/>
-        <None Include="assets\android\notification-72.png"/>
-        <None Include="assets\android\notification-96.png"/>
-        <None Include="assets\android\splash-426x320.png"/>
-        <None Include="assets\android\splash-470x320.png"/>
-        <None Include="assets\android\splash-640x480.png"/>
-        <None Include="assets\android\splash-960x720.png"/>
+        <None Include="assets\android\ic_launcher_background.png">
+            <ResourceType>RCDATA</ResourceType>
+            <ResourceId>PngImage_3</ResourceId>
+        </None>
+        <None Include="assets\android\ic_launcher_foreground.png">
+            <ResourceType>RCDATA</ResourceType>
+            <ResourceId>PngImage_4</ResourceId>
+        </None>
+        <None Include="assets\android\ic_launcher_monochrome.png">
+            <ResourceType>RCDATA</ResourceType>
+            <ResourceId>PngImage_5</ResourceId>
+        </None>
+        <None Include="assets\android\launcher-144.png">
+            <ResourceType>RCDATA</ResourceType>
+            <ResourceId>PngImage_6</ResourceId>
+        </None>
+        <None Include="assets\android\launcher-192.png">
+            <ResourceType>RCDATA</ResourceType>
+            <ResourceId>PngImage_7</ResourceId>
+        </None>
+        <None Include="assets\android\launcher-36.png">
+            <ResourceType>RCDATA</ResourceType>
+            <ResourceId>PngImage_8</ResourceId>
+        </None>
+        <None Include="assets\android\launcher-48.png">
+            <ResourceType>RCDATA</ResourceType>
+            <ResourceId>PngImage_9</ResourceId>
+        </None>
+        <None Include="assets\android\launcher-72.png">
+            <ResourceType>RCDATA</ResourceType>
+            <ResourceId>PngImage_10</ResourceId>
+        </None>
+        <None Include="assets\android\launcher-96.png">
+            <ResourceType>RCDATA</ResourceType>
+            <ResourceId>PngImage_11</ResourceId>
+        </None>
+        <None Include="assets\android\notification-24.png">
+            <ResourceType>RCDATA</ResourceType>
+            <ResourceId>PngImage_12</ResourceId>
+        </None>
+        <None Include="assets\android\notification-36.png">
+            <ResourceType>RCDATA</ResourceType>
+            <ResourceId>PngImage_13</ResourceId>
+        </None>
+        <None Include="assets\android\notification-48.png">
+            <ResourceType>RCDATA</ResourceType>
+            <ResourceId>PngImage_14</ResourceId>
+        </None>
+        <None Include="assets\android\notification-72.png">
+            <ResourceType>RCDATA</ResourceType>
+            <ResourceId>PngImage_15</ResourceId>
+        </None>
+        <None Include="assets\android\notification-96.png">
+            <ResourceType>RCDATA</ResourceType>
+            <ResourceId>PngImage_16</ResourceId>
+        </None>
+        <None Include="assets\android\splash-426x320.png">
+            <ResourceType>RCDATA</ResourceType>
+            <ResourceId>PngImage_17</ResourceId>
+        </None>
+        <None Include="assets\android\splash-470x320.png">
+            <ResourceType>RCDATA</ResourceType>
+            <ResourceId>PngImage_18</ResourceId>
+        </None>
+        <None Include="assets\android\splash-640x480.png">
+            <ResourceType>RCDATA</ResourceType>
+            <ResourceId>PngImage_19</ResourceId>
+        </None>
+        <None Include="assets\android\splash-960x720.png">
+            <ResourceType>RCDATA</ResourceType>
+            <ResourceId>PngImage_20</ResourceId>
+        </None>
         <None Include="README.md"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
@@ -299,6 +353,10 @@
             <Platforms>
                 <Platform value="Android">False</Platform>
                 <Platform value="Android64">True</Platform>
+                <Platform value="iOSDevice64">False</Platform>
+                <Platform value="iOSSimARM64">False</Platform>
+                <Platform value="OSX64">False</Platform>
+                <Platform value="OSXARM64">False</Platform>
                 <Platform value="Win32">False</Platform>
                 <Platform value="Win64">True</Platform>
             </Platforms>
