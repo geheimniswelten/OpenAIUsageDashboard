@@ -331,6 +331,11 @@
             <ResourceId>PngImage_20</ResourceId>
         </None>
         <None Include="README.md"/>
+        <None Include="Build-Windows.ps1"/>
+        <None Include="Dashboard.TrayIcons.rc"/>
+        <None Include="Dashboard.TrayIcons.res"/>
+        <None Include="assets\OpenAIUsageDashboard-Warning.svg"/>
+        <None Include="assets\OpenAIUsageDashboard-Warning.ico"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>

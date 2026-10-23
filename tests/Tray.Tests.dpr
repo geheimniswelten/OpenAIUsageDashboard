@@ -5,11 +5,14 @@
 
 uses
   System.SysUtils,
+  System.Math,
+  System.StrUtils,
   FMX.Forms,
   Winapi.Windows,
   Winapi.Messages,
   Winapi.ShellAPI,
   Vcl.ExtCtrls,
+  Dashboard.Model in '..\Dashboard.Model.pas',
   Dashboard.Tray in '..\Dashboard.Tray.pas';
 
 type
@@ -170,6 +173,91 @@ begin
   Check(AProbe.Count = 2, 'Other mouse buttons must not toggle the dashboard');
 end;
 
+procedure CheckUsageHint(const ATray: TDashboardTray);
+var
+  S: TUsageSnapshot;
+  Before: string;
+begin
+  S := TUsageSnapshot.Create;
+  try
+    S.StatusText := 'Aktuell';
+    ATray.UpdateSnapshot(S);
+    Check(ATray.HintText = 'OpenAI-Nutzung', 'Healthy status must be quiet, absent limits must not become 0%');
+    Check(not ATray.WarningActive, 'No warning without a limit');
+    S.CodexRateLimitsAvailable := True;
+    SetLength(S.RateLimits, 3);
+    S.RateLimits[0].Available := True;
+    S.RateLimits[0].UsedPercent := 43;
+    S.RateLimits[1].Available := True;
+    S.RateLimits[1].UsedPercent := 93;
+    S.RateLimits[2].Available := False;
+    S.RateLimits[2].UsedPercent := 99;
+    ATray.UpdateSnapshot(S);
+    Check(ATray.HintText = 'OpenAI-Nutzung · 93 % verbraucht', 'Show highest available percentage');
+    Check(ATray.WarningActive, '93% must use warning icon');
+    Before := ATray.HintText;
+    ATray.SetCollectorMode(True);
+    Check(ATray.HintText = Before, 'Collector mode must not add Nur Sammler');
+    Check(ATray.WarningActive, 'Collector mode must keep warning');
+    ATray.SetCollectorMode(False);
+    Check(ATray.HintText = Before, 'Dashboard mode must keep same usage hint');
+    S.RateLimits[1].UsedPercent := 90;
+    ATray.UpdateSnapshot(S);
+    Check(not ATray.WarningActive, 'Exactly 90% must use normal icon');
+    S.RateLimits[1].UsedPercent := 90.1;
+    ATray.UpdateSnapshot(S);
+    Check(ATray.WarningActive, 'More than 90% must use warning icon');
+    S.RateLimits[1].UsedPercent := 20;
+    ATray.UpdateSnapshot(S);
+    Check(not ATray.WarningActive, 'Reset must restore normal icon');
+    Check(ContainsText(ATray.HintText, '43 %'), 'Maximum must be recalculated after reset');
+    S.SpendingLimit := 200;
+    S.PeriodCost := 195;
+    ATray.UpdateSnapshot(S);
+    Check(ATray.WarningActive, 'API spending limit participates');
+    Check(ContainsText(ATray.HintText, FormatFloat('0.##', 97.5) + ' %'), 'API maximum percentage');
+    S.PeriodCost := 300;
+    ATray.UpdateSnapshot(S);
+    Check(ContainsText(ATray.HintText, '150 %'), 'Do not cap exceeded spending limits');
+    S.SpendingLimit := 0;
+    S.RateLimits[0].UsedPercent := NaN;
+    S.RateLimits[1].UsedPercent := Infinity;
+    ATray.UpdateSnapshot(S);
+    Check((ATray.HintText = 'OpenAI-Nutzung') and not ATray.WarningActive, 'Ignore nonfinite limits');
+    S.RateLimits[1].UsedPercent := -1;
+    S.SpendingLimit := NaN;
+    ATray.UpdateSnapshot(S);
+    Check(not ATray.WarningActive, 'Ignore invalid spending/negative limits');
+    S.SpendingLimit := 0;
+    S.RateLimits[1].UsedPercent := 99;
+    S.CodexRateLimitsAvailable := False;
+    ATray.UpdateSnapshot(S);
+    Check(not ATray.WarningActive, 'Unavailable Codex data must not warn');
+    S.StatusText := 'Aktuell · Codex teilweise nicht verfügbar';
+    ATray.UpdateSnapshot(S);
+    Check(not ContainsText(ATray.HintText, 'Aktuell'), 'Remove healthy prefix');
+    Check(ContainsText(ATray.HintText, 'Codex teilweise nicht verfügbar'), 'Keep partial error');
+    S.StatusText := 'Aktuell';
+    S.CodexError := 'Anmeldung abgelaufen';
+    ATray.UpdateSnapshot(S);
+    Check(ContainsText(ATray.HintText, S.CodexError), 'Keep actual Codex failure');
+    S.StatusText := 'Veraltet · Verbindung fehlgeschlagen';
+    ATray.UpdateSnapshot(S);
+    Check(ContainsText(ATray.HintText, 'Verbindung fehlgeschlagen'), 'Keep general failure');
+    S.CodexRateLimitsAvailable := True;
+    S.CodexError := StringOfChar('X', 300);
+    ATray.UpdateSnapshot(S);
+    Check(Length(ATray.HintText) <= 127, 'Hint must fit Shell limit');
+    Check(ContainsText(ATray.HintText, '99 %'), 'Usage stays visible with long error');
+    S.Clear;
+    S.StatusText := 'Aktuell';
+    ATray.UpdateSnapshot(S);
+    Check(not ATray.WarningActive, 'Clear restores normal icon');
+  finally
+    S.Free;
+  end;
+end;
+
 procedure Run;
 var
   Tray: TDashboardTray;
@@ -206,6 +294,7 @@ begin
     Check(Tray.RecoveryCount = 0, 'Initial registration must not count as a repair');
     CheckLostIconRecovery(Tray);
     CheckDoubleClickToggle(Probe);
+    CheckUsageHint(Tray);
     Tray.UpdateStatus('Tray-Test');
     Tray.SetCollectorMode(True);
     FMX.Forms.Application.ProcessMessages;

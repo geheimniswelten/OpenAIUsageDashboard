@@ -25,7 +25,7 @@ begin
   if not ACondition then raise Exception.Create(AMessage);
 end;
 
-procedure Verify(const AExe, AIcon: string);
+procedure Verify(const AExe, AIcon, AResourceName: string);
 var
   Module: HMODULE;
   GroupRes, ImageRes: HRSRC;
@@ -46,8 +46,8 @@ begin
   Module := LoadLibraryEx(PChar(AExe), 0, LOAD_LIBRARY_AS_DATAFILE);
   Check(Module <> 0, 'Cannot read EXE resources: ' + SysErrorMessage(GetLastError));
   try
-    GroupRes := FindResource(Module, 'MAINICON', RT_GROUP_ICON);
-    Check(GroupRes <> 0, 'MAINICON missing');
+    GroupRes := FindResource(Module, PChar(AResourceName), RT_GROUP_ICON);
+    Check(GroupRes <> 0, AResourceName + ' missing');
     Check(SizeofResource(Module, GroupRes) >= SizeOf(GroupHeader), 'Invalid icon group');
     GroupData := LockResource(LoadResource(Module, GroupRes));
     Check(GroupData <> nil, 'Cannot load MAINICON');
@@ -80,12 +80,12 @@ begin
     end;
     for I in [16, 32, 48] do
     begin
-      SmallIcon := LoadImage(Module, 'MAINICON', IMAGE_ICON, I, I, 0);
+      SmallIcon := LoadImage(Module, PChar(AResourceName), IMAGE_ICON, I, I, 0);
       Check(SmallIcon <> 0, 'Windows cannot load MAINICON at size ' + IntToStr(I));
       DestroyIcon(SmallIcon);
     end;
     Writeln('WINDOWS_RESOURCES_OK: all ', FileHeader.Count,
-      ' MAINICON images match the ICO asset; Windows loads 16/32/48px icons.');
+      ' ', AResourceName, ' images match the ICO asset; Windows loads 16/32/48px icons.');
   finally
     FreeLibrary(Module);
   end;
@@ -93,8 +93,11 @@ end;
 
 begin
   try
-    Check(ParamCount = 2, 'Usage: WindowsResources.Tests <EXE> <ICO>');
-    Verify(ExpandFileName(ParamStr(1)), ExpandFileName(ParamStr(2)));
+    Check(ParamCount in [2, 3], 'Usage: WindowsResources.Tests <EXE> <ICO> [resource name]');
+    if ParamCount = 3 then
+      Verify(ExpandFileName(ParamStr(1)), ExpandFileName(ParamStr(2)), ParamStr(3))
+    else
+      Verify(ExpandFileName(ParamStr(1)), ExpandFileName(ParamStr(2)), 'MAINICON');
   except
     on E: Exception do begin Writeln('FAIL: ', E.Message); ExitCode := 1; end;
   end;

@@ -1086,6 +1086,10 @@ begin
   FSnapshot.MakeDemo;
   FSnapshot.SpendingLimit := Max(FSnapshot.SpendingLimit, FSettings.SpendingLimit);
   FSnapshot.Recalculate;
+  {$IFDEF MSWINDOWS}
+    if FTray <> nil then
+      FTray.UpdateSnapshot(FSnapshot);
+  {$ENDIF}
   FPublisher.Publish(FSnapshot);
   FSettingsPanel.Visible := False;
   FPaintBox.Repaint;
@@ -1134,7 +1138,7 @@ begin
   FCollectorMode := True;
   FAllowCollectorSettings := False;
   FTray.SetCollectorMode(True);
-  FTray.UpdateStatus(FSnapshot.StatusText);
+  FTray.UpdateSnapshot(FSnapshot);
   FSettingsPanel.Visible := False;
   Hide;
   Winapi.Windows.ShowWindow(FMX.Platform.Win.ApplicationHWND, SW_HIDE);
@@ -1511,7 +1515,7 @@ begin
     if FLimitNotifications <> nil then
       FLimitNotifications.Observe(FSnapshot, ASuccess);
     if FTray <> nil then
-      FTray.UpdateStatus(FSnapshot.StatusText);
+      FTray.UpdateSnapshot(FSnapshot);
   {$IFEND}
   FPaintBox.Repaint;
   UpdateExternalDisplay(True);

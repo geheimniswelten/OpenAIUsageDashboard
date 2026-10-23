@@ -33,6 +33,11 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Resource compilation failed ($LASTEXITCODE)." }
     Copy-Item -LiteralPath $resourceOutput -Destination (Join-Path $PSScriptRoot 'OpenAIUsageDashboard.RES') -Force
 
+    $trayResourceOutput = Join-Path $dcuPath 'Dashboard.TrayIcons.res'
+    & $ResourceCompiler /nologo /fo $trayResourceOutput 'Dashboard.TrayIcons.rc'
+    if ($LASTEXITCODE -ne 0) { throw "Tray resource compilation failed ($LASTEXITCODE)." }
+    Copy-Item -LiteralPath $trayResourceOutput -Destination (Join-Path $PSScriptRoot 'Dashboard.TrayIcons.res') -Force
+
     & $compiler -B -Q --codepage:65001 '-$O+' '-$D-' '-$L-' `
         '-NSSystem;Xml;Data;Datasnap;Web;Soap;Winapi;System.Win;Data.Win;Datasnap.Win;Web.Win;Soap.Win;Xml.Win;Bde' `
         "-N0$dcuPath" "-E$outputPath" 'OpenAIUsageDashboard.dpr'

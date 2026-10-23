@@ -3,10 +3,12 @@
 interface
 
 uses
-  System.SysUtils
+  System.SysUtils,
+  Dashboard.Model
 {$IF Defined(MSWINDOWS)}
   , Vcl.ExtCtrls,
-  Vcl.Menus
+  Vcl.Menus,
+  Vcl.Graphics
 {$ENDIF}
   ;
 
@@ -21,16 +23,22 @@ type
     FVisible: Boolean;
     FShowRequested: Boolean;
     FRecoveryCount: Cardinal;
-    FCollectorMode: Boolean;
     FStatus: string;
+    FHintText: string;
+    FHasLimit: Boolean;
+    FMaximumUsed: Double;
+    FWarningActive: Boolean;
 {$IF Defined(MSWINDOWS)}
     FTray: TTrayIcon;
+    FNormalIcon, FWarningIcon: TIcon;
     FMenu: TPopupMenu;
     FDashboardItem: TMenuItem;
     FCollectorItem: TMenuItem;
     procedure MenuClick(Sender: TObject);
     procedure AddMenuItem(const ACaption: string; const AAction: TTrayAction);
 {$ENDIF}
+    procedure UpdateHint;
+    procedure SetWarning(const AWarning: Boolean);
   public
     constructor Create(const AOnAction: TTrayActionEvent);
     destructor Destroy; override;
@@ -41,18 +49,28 @@ type
     function EnsureVisible(out AError: string): Boolean;
     procedure Hide;
     procedure UpdateStatus(const AStatus: string);
+    procedure UpdateSnapshot(const ASnapshot: TUsageSnapshot);
     procedure SetCollectorMode(const AValue: Boolean);
     property Visible: Boolean read FVisible;
     property RecoveryCount: Cardinal read FRecoveryCount;
+    property HintText: string read FHintText;
+    property WarningActive: Boolean read FWarningActive;
   end;
 
 implementation
 
-{$IF Defined(MSWINDOWS)}
 uses
-  Winapi.Windows,
+  System.Math,
+  System.StrUtils
+{$IF Defined(MSWINDOWS)}
+  , Winapi.Windows,
   Winapi.Messages,
-  Winapi.ShellAPI;
+  Winapi.ShellAPI
+{$ENDIF}
+  ;
+
+{$IF Defined(MSWINDOWS)}
+{$R 'Dashboard.TrayIcons.res'}
 
 const
   CActionMessage = WM_APP + $472;
@@ -160,6 +178,8 @@ begin
   inherited Create;
 {$IF Defined(MSWINDOWS)}
   FTray := TCheckedTrayIcon.Create(nil);
+  FNormalIcon := TIcon.Create;
+  FWarningIcon := TIcon.Create;
   TCheckedTrayIcon(FTray).FActionHandler := AOnAction;
   TCheckedTrayIcon(FTray).FActionSender := Self;
   { Load the native small-icon size directly so the Shell does not have to
@@ -169,7 +189,14 @@ begin
   if TrayIconHandle = 0 then
     TrayIconHandle := CopyIcon(LoadIcon(0, IDI_APPLICATION));
   if TrayIconHandle <> 0 then
-    FTray.Icon.Handle := TrayIconHandle;
+    FNormalIcon.Handle := TrayIconHandle;
+  FTray.Icon.Assign(FNormalIcon);
+  TrayIconHandle := LoadImage(HInstance, 'TRAYWARNING', IMAGE_ICON,
+    GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), 0);
+  if TrayIconHandle = 0 then
+    TrayIconHandle := CopyIcon(LoadIcon(0, IDI_WARNING));
+  if TrayIconHandle <> 0 then
+    FWarningIcon.Handle := TrayIconHandle;
 
   FMenu := TPopupMenu.Create(nil);
   AddMenuItem('Dashboard ausblenden', taToggleDashboard);
@@ -198,6 +225,8 @@ begin
     FreeAndNil(FTray);
   end;
   FMenu.Free;
+  FWarningIcon.Free;
+  FNormalIcon.Free;
 {$ENDIF}
   inherited;
 end;
@@ -248,25 +277,80 @@ begin
 end;
 
 procedure TDashboardTray.UpdateStatus(const AStatus: string);
-{$IF Defined(MSWINDOWS)}
-var
-  Tip: string;
-{$ENDIF}
+const
+  CurrentPrefix = 'Aktuell · ';
 begin
-  FStatus := AStatus;
-{$IF Defined(MSWINDOWS)}
-  Tip := 'OpenAI-Nutzung';
-  if FCollectorMode then
-    Tip := Tip + ' · Nur Sammler';
+  FStatus := Trim(AStatus);
+  if SameText(FStatus, 'Aktuell') then
+    FStatus := ''
+  else if StartsText(CurrentPrefix, FStatus) then
+    FStatus := Trim(Copy(FStatus, Length(CurrentPrefix) + 1, MaxInt));
+  UpdateHint;
+end;
+
+procedure TDashboardTray.UpdateHint;
+begin
+  FHintText := 'OpenAI-Nutzung';
+  if FHasLimit then
+    FHintText := FHintText + ' · ' + FormatFloat('0.##', FMaximumUsed) + ' % verbraucht';
   if FStatus <> '' then
-    Tip := Tip + #13#10 + FStatus;
-  FTray.Hint := Copy(Tip, 1, 127);
+    FHintText := FHintText + #13#10 + FStatus;
+  FHintText := Copy(FHintText, 1, 127);
+{$IF Defined(MSWINDOWS)}
+  FTray.Hint := FHintText;
 {$ENDIF}
+end;
+
+procedure TDashboardTray.SetWarning(const AWarning: Boolean);
+begin
+  if FWarningActive = AWarning then Exit;
+{$IF Defined(MSWINDOWS)}
+  if AWarning then
+    FTray.Icon.Assign(FWarningIcon)
+  else
+    FTray.Icon.Assign(FNormalIcon);
+{$ENDIF}
+  FWarningActive := AWarning;
+end;
+
+procedure TDashboardTray.UpdateSnapshot(const ASnapshot: TUsageSnapshot);
+var
+  Limit: TRateLimitWindow;
+  Status: string;
+
+  procedure Consider(const AUsed: Double);
+  begin
+    if IsNan(AUsed) or IsInfinite(AUsed) or (AUsed < 0) then Exit;
+    if not FHasLimit or (AUsed > FMaximumUsed) then
+      FMaximumUsed := AUsed;
+    FHasLimit := True;
+  end;
+
+begin
+  FHasLimit := False;
+  FMaximumUsed := 0;
+  if not IsNan(ASnapshot.SpendingLimit) and not IsInfinite(ASnapshot.SpendingLimit) and
+    (ASnapshot.SpendingLimit > 0) and not IsNan(ASnapshot.PeriodCost) and
+    not IsInfinite(ASnapshot.PeriodCost) then
+    Consider(100 * (ASnapshot.PeriodCost / ASnapshot.SpendingLimit));
+  if ASnapshot.CodexRateLimitsAvailable then
+    for Limit in ASnapshot.RateLimits do
+      if Limit.Available then
+        Consider(Limit.UsedPercent);
+  SetWarning(FHasLimit and (FMaximumUsed > 90));
+  Status := ASnapshot.StatusText;
+  if ASnapshot.CodexError <> '' then
+  begin
+    if (Trim(Status) = '') or StartsText('Aktuell', Status) then
+      Status := 'Codex: ' + ASnapshot.CodexError
+    else if not ContainsText(Status, ASnapshot.CodexError) then
+      Status := Status + ' · Codex: ' + ASnapshot.CodexError;
+  end;
+  UpdateStatus(Status);
 end;
 
 procedure TDashboardTray.SetCollectorMode(const AValue: Boolean);
 begin
-  FCollectorMode := AValue;
 {$IF Defined(MSWINDOWS)}
   if AValue then
     FDashboardItem.Caption := 'Dashboard anzeigen'
@@ -274,7 +358,6 @@ begin
     FDashboardItem.Caption := 'Dashboard ausblenden';
   FCollectorItem.Checked := AValue;
 {$ENDIF}
-  UpdateStatus(FStatus);
 end;
 
 {$IF Defined(MSWINDOWS)}

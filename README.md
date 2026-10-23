@@ -464,6 +464,16 @@ und das geöffnete Einstellungsfenster sind von dieser Aktion ausgenommen.
 
 ## Limitwarnungen im Hintergrund (Windows)
 
+Der Tray-Hint zeigt den höchsten verfügbaren Prozentverbrauch der Codex-Limits
+und eines konfigurierten API-Ausgabenlimits, etwa `OpenAI-Nutzung · 93 % verbraucht`.
+`Nur Sammler` und der fehlerfreie Status `Aktuell` entfallen; Fehlermeldungen
+bleiben sichtbar. Bei mehr als 90 % Verbrauch zeigt ausschließlich das Tray
+einen roten Knoten mit schwarzem U. Bei 90 % oder weniger kehrt das normale
+Symbol zurück. Fehlende oder ungültige Limits werden nicht als 0 % ausgegeben.
+Das Warnsymbol liegt als SVG/ICO in `assets/OpenAIUsageDashboard-Warning.*` und
+als separate Ressource in `Dashboard.TrayIcons.res`, damit ein IDE-Build der
+Hauptressource es nicht überschreibt. `Build-Windows.ps1` baut beide Ressourcen.
+
 Bei minimiertem oder im Tray ausgeblendetem Dashboard erscheint ein kurzer
 Balloon auf dem Bildschirm des Mauszeigers, sobald das verbleibende Codex-Budget
 20 %, 10 %, 9 % bis 1 % oder schließlich 0 % erreicht/unterschreitet. Der Hinweis
