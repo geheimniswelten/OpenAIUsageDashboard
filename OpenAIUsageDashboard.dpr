@@ -6,6 +6,8 @@ uses
     System.SysUtils,
     Winapi.Windows,
     Dashboard.Instance in 'Dashboard.Instance.pas',
+    Dashboard.LimitAlerts in 'Dashboard.LimitAlerts.pas',
+    Dashboard.LimitNotifications in 'Dashboard.LimitNotifications.pas',
   {$ENDIF}
   FMX.Forms,
   Dashboard.Codex in 'Dashboard.Codex.pas',

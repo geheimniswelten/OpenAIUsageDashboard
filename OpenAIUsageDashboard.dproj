@@ -224,6 +224,8 @@
         </DelphiCompile>
         <DCCReference Include="Dashboard.Codex.pas"/>
         <DCCReference Include="Dashboard.DisplayPolicy.pas"/>
+        <DCCReference Include="Dashboard.LimitAlerts.pas"/>
+        <DCCReference Include="Dashboard.LimitNotifications.pas"/>
         <DCCReference Include="Dashboard.Model.pas"/>
         <DCCReference Include="Dashboard.OpenAI.pas"/>
         <DCCReference Include="Dashboard.Platform.pas"/>

@@ -1,6 +1,7 @@
 ﻿program TrayTests;
 
 {$APPTYPE CONSOLE}
+{$R '..\OpenAIUsageDashboard.res'}
 
 uses
   System.SysUtils,

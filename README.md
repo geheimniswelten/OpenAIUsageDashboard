@@ -47,6 +47,18 @@ NDK, Gerät und Signierung in RAD Studio eingerichtet sein. Das Manifest fordert
 Internetzugriff an, verwendet die beiden Landscape-Ausrichtungen und erlaubt für
 den hausinternen HTTP-Sammler Klartextverkehr.
 
+Für einen Win64-Release-Build ohne IDE `./Build-Windows.ps1` verwenden. Das Skript
+erzeugt vor jedem Delphi-Build die Projektressourcen aus `OpenAIUsageDashboard.rc`
+neu, einschließlich des aktuellen Icons, Manifests und der Versionsinformationen.
+Ein bloßer `dcc64`-Aufruf übernimmt dagegen eine möglicherweise veraltete `.RES`.
+Optional wählen `-DelphiBin` und `-OutputDirectory` Compiler- bzw. Ausgabeordner.
+Für Ressourcen wird `rc.exe` aus dem Windows SDK verwendet; dessen Pfad kann
+mit `-ResourceCompiler` vorgegeben werden. Das ältere `brcc32` verändert bei
+diesen Icons die Farbtiefenangabe der Gruppe fälschlich von 32 auf 24 Bit.
+`tests/WindowsResources.Tests.dpr` prüft die fertige EXE gegen
+`assets/OpenAIUsageDashboard.ico`: alle eingebetteten MAINICON-Bilder müssen
+bytegenau übereinstimmen und als Windows-Icons ladbar sein.
+
 Das Windows-App-Icon liegt in `assets/OpenAIUsageDashboard.ico`, die bearbeitbare
 Vektorvorlage daneben als SVG. Es zeigt das ChatGPT-Grundsymbol mit rotem **U**
 auf transparentem Hintergrund und enthält 16, 20, 24, 32, 40, 48, 64, 128 und 256 Pixel
@@ -390,6 +402,10 @@ OtherDisplayIdleMinutes=10
 
 ## Verifikation
 
+- `tests/LimitAlerts.Tests.dpr` prüft Warnschwellen, Wiederholungsunterdrückung,
+  getrennte Limitfenster, Zurücksetzungen, ungültige/veraltete Daten, ausbleibende
+  oder fehlgeschlagene Zustellung sowie einen echten Windows-Balloon ohne Ton
+  und ohne API-Aufruf (Maus-Monitor, Bildschirmgrenzen, unveränderter Fokus).
 - Win64-Anwendung kompiliert; Plattform- und Traytests der aktuellen
   Monitor-/Fensterkorrektur sind bestanden.
 - `tests/Instance.Tests.dpr` prüft die Instanzsperre in echten getrennten Prozessen:
@@ -445,3 +461,28 @@ Ein linker Doppelklick auf die Dashboard-Fläche aktiviert den vorhandenen
 Sammler-/Tray-Modus. Das Fenster wird ausgeblendet, die Abfragen laufen weiter.
 Per Tray-Doppelklick oder Tray-Menü lässt sich das Dashboard ein- und ausblenden. Das Einstellungssymbol
 und das geöffnete Einstellungsfenster sind von dieser Aktion ausgenommen.
+
+## Limitwarnungen im Hintergrund (Windows)
+
+Bei minimiertem oder im Tray ausgeblendetem Dashboard erscheint ein kurzer
+Balloon auf dem Bildschirm des Mauszeigers, sobald das verbleibende Codex-Budget
+20 %, 10 %, 9 % bis 1 % oder schließlich 0 % erreicht/unterschreitet. Der Hinweis
+nennt Limit, Zeitfenster, Restbudget und – sofern geliefert – die Zurücksetzungszeit.
+Er bleibt ungefähr sieben Sekunden sichtbar und spielt einmal den Windows-Warnton
+(abhängig von den Windows-Toneinstellungen). Der Tastaturfokus bleibt erhalten.
+
+Voraussetzung sind eine aktive, entsperrte Sitzung, ein nicht ausgeschalteter oder
+gedimmter Bildschirm und eine Eingabe innerhalb der letzten zwei Minuten. Ist der
+Bildschirmstatus noch unbekannt, gelten die Sitzungs- und Eingabeprüfung. Die
+Warnung weckt keine Monitore auf. Das normale Abfrageintervall bestimmt, wann ein
+neuer Verbrauch erkannt wird; zusätzliche API-Abfragen gibt es nicht.
+
+Je Limitfenster wird eine Schwelle während eines Anwendungslaufs nur einmal
+gemeldet. Bei übersprungenen Schwellen zählt der aktuelle Restwert. Mehrere
+betroffene Limits erscheinen nacheinander mit mindestens zehn Sekunden Abstand.
+Während Inaktivität bleibt die aktuelle Warnung vorgemerkt; fehlende, ungültige,
+abgelaufene oder veraltete Daten und Demodaten bleiben still. Daten gelten nach
+zwei Abfrageintervallen, mindestens zwei Minuten, als veraltet. Ein neues
+Limitfenster oder eine deutliche Budgeterholung (mindestens 20 Prozentpunkte)
+aktiviert die Schwellen erneut. Nach einem Programmneustart kann der bereits
+niedrige aktuelle Restwert einmal erneut gemeldet werden.

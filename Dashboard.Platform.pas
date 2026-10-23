@@ -122,6 +122,7 @@ type
     procedure RestoreWindowsDashboard(const AActivate: Boolean = False);
     procedure LogWindowsEvent(const AText: string); virtual;
     property OnDashboardRestore: TNotifyEvent read FOnDashboardRestore write FOnDashboardRestore;
+    property DisplayPowerState: Integer read FDisplayPowerState;
 {$ENDIF}
     procedure GetDisplayChoices(out AValues: TArray<Integer>;
       out ACaptions: TArray<string>);

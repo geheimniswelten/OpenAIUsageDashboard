@@ -29,6 +29,7 @@ uses
   Dashboard.Codex,
   {$IFDEF MSWINDOWS}
     Dashboard.Tray,
+    Dashboard.LimitNotifications,
     Dashboard.Instance,
   {$IFEND}
   Dashboard.OpenAI;
@@ -81,6 +82,7 @@ type
     {$IFDEF MSWINDOWS}
       FActiveOpenAIClient: TOpenAIUsageClient;
       FTray: TDashboardTray;
+      FLimitNotifications: TLimitNotifications;
       FCollectorMode: Boolean;
       FAllowCollectorSettings: Boolean;
       FNextTrayCheckTick: UInt64;
@@ -226,6 +228,7 @@ begin
     FKeyEdit.TextPrompt := TSecretStore.MaskAdminKey(Key);
     if not IsPreview then
     begin
+      FLimitNotifications := TLimitNotifications.Create;
       FTray := TDashboardTray.Create(TrayAction);
       if not FTray.Show(ErrorText) then
       begin
@@ -258,6 +261,7 @@ destructor TMainForm.Destroy;
 begin
   FClosing := True;
   {$IFDEF MSWINDOWS}
+    FreeAndNil(FLimitNotifications);
     FreeAndNil(FTray);
   {$IFEND}
   FTimer.Enabled := False;
@@ -1074,6 +1078,8 @@ procedure TMainForm.ShowDemo(Sender: TObject);
 begin
   RegisterInteraction;
   {$IFDEF MSWINDOWS}
+    if FLimitNotifications <> nil then
+      FLimitNotifications.Invalidate;
     if FCollectorMode then
       ShowDashboard;
   {$IFEND}
@@ -1502,6 +1508,8 @@ begin
   if FSettingsPanel.Visible then
     LayoutSettingsControls;
   {$IFDEF MSWINDOWS}
+    if FLimitNotifications <> nil then
+      FLimitNotifications.Observe(FSnapshot, ASuccess);
     if FTray <> nil then
       FTray.UpdateStatus(FSnapshot.StatusText);
   {$IFEND}
@@ -1578,6 +1586,12 @@ begin
   if (FWorker <> nil) and FWorker.Finished and not FFetching then
     FreeAndNil(FWorker);
   FPlatform.Tick(FSettings.KeepAwakeStartHour, FSettings.KeepAwakeEndHour, FSettings.OtherDisplayIdleMinutes);
+  {$IFDEF MSWINDOWS}
+    if FLimitNotifications <> nil then
+      FLimitNotifications.Tick(not Visible or (WindowState = TWindowState.wsMinimized) or
+        IsIconic(FormToHWND(Self)) or IsIconic(ApplicationHWND),
+        FPlatform.DisplayPowerState, FSettings.RefreshSeconds);
+  {$IFEND}
   ExternalNow := FPlatform.ExternalDisplayActive;
   if ExternalNow <> FWasExternal then
   begin
