@@ -1,3 +1,0 @@
-.\assets\internal\AndroidManifest.template.xml
-.\assets\internal\README.md
-.\assets\internal\OpenAIUsageDashboard.manifest
