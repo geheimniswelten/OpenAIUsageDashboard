@@ -1,0 +1,19 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <DashboardWakeBuild>$(MSBuildProjectDirectory)\_dcu\AndroidWake</DashboardWakeBuild>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(Platform)'=='Android' Or '$(Platform)'=='Android64'">
+    <DashboardWakeSource Include="$(MSBuildProjectDirectory)\android\src\de\hausintern\dashboard\*.java" />
+    <JavaReference Include="$(DashboardWakeBuild)\dashboard-wake.jar">
+      <Disabled>False</Disabled>
+      <IsSystem>False</IsSystem>
+    </JavaReference>
+  </ItemGroup>
+  <Target Name="BuildDashboardWake" BeforeTargets="BuildAndroidManifestList;GetProjectJars"
+          Condition="'$(Platform)'=='Android' Or '$(Platform)'=='Android64'"
+          Inputs="@(DashboardWakeSource);$(MSBuildThisFileFullPath)" Outputs="$(DashboardWakeBuild)\dashboard-wake.jar">
+    <MakeDir Directories="$(DashboardWakeBuild)\classes" />
+    <Exec Command="&quot;$(JDKPath)\bin\javac.exe&quot; -source 8 -target 8 -Xlint:-options -encoding UTF-8 -classpath &quot;$(SDKApiLevelPath)&quot; -d &quot;$(DashboardWakeBuild)\classes&quot; @(DashboardWakeSource->'&quot;%(Identity)&quot;', ' ')" />
+    <Exec Command="&quot;$(JDKPath)\bin\jar.exe&quot; cf &quot;$(DashboardWakeBuild)\dashboard-wake.jar&quot; -C &quot;$(DashboardWakeBuild)\classes&quot; ." />
+  </Target>
+</Project>

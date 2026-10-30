@@ -7,13 +7,15 @@ uses
   System.UITypes,
   FMX.Types,
   FMX.Graphics,
-  Dashboard.Model;
+  Dashboard.Model,
+  Dashboard.ModelReference;
 
 type
   TDashboardRenderer = class
   private
     FSnapshot: TUsageSnapshot;
     FScale: Single;
+    FModelReferences: TArray<TModelReference>;
     procedure SetFont(const ACanvas: TCanvas; const ASize: Single; const ABold: Boolean = False);
     procedure Text(const ACanvas: TCanvas; const ARect: TRectF; const AText: string; const ASize: Single; const AColor: TAlphaColor;
       const ABold: Boolean = False; const AAlign: TTextAlign = TTextAlign.Leading; const AVertical: TTextAlign = TTextAlign.Center);
@@ -23,6 +25,7 @@ type
     procedure DrawChart(const ACanvas: TCanvas; const ARect: TRectF);
     procedure DrawModels(const ACanvas: TCanvas; const ARect: TRectF);
     procedure DrawServices(const ACanvas: TCanvas; const ARect: TRectF);
+    procedure DrawModelReference(const ACanvas: TCanvas; const ARect: TRectF);
     procedure DrawLimits(const ACanvas: TCanvas; const ARect: TRectF);
     procedure DrawCodex(const ACanvas: TCanvas; const ARect: TRectF);
   public
@@ -146,6 +149,7 @@ begin
   inherited Create;
   FSnapshot := ASnapshot;
   FScale := 1;
+  FModelReferences := GetModelReferences;
 end;
 
 function TDashboardRenderer.SettingsHitRect(const ARect: TRectF): TRectF;
@@ -229,17 +233,17 @@ begin
   ACanvas.Fill.Color := LimitColor(IfThen(SameText(Status, 'Aktuell'), 0, 80));
   ACanvas.FillEllipse(Dot, 1);
   Text(ACanvas, TRectF.Create(Dot.Right + 5 * FScale, ARect.Top,
-    ARect.Right, ARect.Top + 22 * FScale), Status, 12, CText, True,
+    StatusPanel.Right - 20 * FScale, ARect.Top + 22 * FScale), Status, 12, CText, True,
     TTextAlign.Leading);
   if FSnapshot.LastUpdated > 0 then
     Stamp := 'Stand ' + FormatDateTime('dd.mm.yyyy, hh:nn:ss', FSnapshot.LastUpdated)
   else
     Stamp := 'Noch nicht aktualisiert';
   Text(ACanvas, TRectF.Create(ARect.Right - 360 * FScale,
-    ARect.Top + 22 * FScale, ARect.Right, ARect.Top + 44 * FScale),
+    ARect.Top + 22 * FScale, StatusPanel.Right - 20 * FScale, ARect.Top + 44 * FScale),
     Stamp, 10, CMuted, False, TTextAlign.Trailing);
   Text(ACanvas, TRectF.Create(ARect.Right - 420 * FScale,
-    ARect.Top + 43 * FScale, ARect.Right, ARect.Top + 64 * FScale),
+    ARect.Top + 43 * FScale, StatusPanel.Right - 20 * FScale, ARect.Top + 64 * FScale),
     FSnapshot.OrganizationId, 10, CMuted, False, TTextAlign.Trailing);
 end;
 
@@ -574,24 +578,31 @@ end;
 
 procedure TDashboardRenderer.DrawServices(const ACanvas: TCanvas; const ARect: TRectF);
 var
-  I, Count, Col, RowIndex, Cols, Rows: Integer;
-  Gap, CellW, CellH, X, Y, ValueFontSize, MeasuredWidth: Single;
+  I, Count, Col, RowIndex, Cols, Rows, HiddenUsed: Integer;
+  Gap, CellW, CellH, X, Y, ValueFontSize, MeasuredWidth, FooterH: Single;
   R, NameRect, ValueRect, DetailRect: TRectF;
   ValueText, Detail: string;
+  Services: TArray<TServiceUsage>;
 begin
   Box(ACanvas, ARect, CPanel, CBorder);
   Text(ACanvas, TRectF.Create(ARect.Left + 15 * FScale, ARect.Top + 7 * FScale, ARect.Right - 12 * FScale, ARect.Top + 38 * FScale), 'Weitere API-Dienste', 15, CText, True);
-  Count := Length(FSnapshot.Services);
+  Services := FSnapshot.GetServicesByUsage;
+  Count := Min(6, Length(Services));
   if Count = 0 then
   begin
     Text(ACanvas, RectInset(ARect, 15 * FScale, 45 * FScale), 'Noch keine Zusatzdaten', 11, CMuted, False, TTextAlign.Center);
     Exit;
   end;
-  Cols := 3;
+  FooterH := 0;
+  if Length(Services) > Count then
+    FooterH := 22 * FScale;
+  Cols := 2;
   Rows := Ceil(Count / Cols);
   Gap := 7 * FScale;
   CellW := (ARect.Width - 30 * FScale - Gap * (Cols - 1)) / Cols;
-  CellH := (ARect.Height - 49 * FScale - Gap * (Rows - 1)) / Rows;
+  CellH := (ARect.Height - 49 * FScale - FooterH - Gap * (Rows - 1)) / Rows;
+  if (CellW <= 0) or (CellH <= 0) then
+    Exit;
   for I := 0 to Count - 1 do
   begin
     Col := I mod Cols;
@@ -603,9 +614,9 @@ begin
     NameRect := TRectF.Create(R.Left + 10 * FScale, R.Top + 8 * FScale, R.Right - 10 * FScale, R.Top + 36 * FScale);
     ValueRect := TRectF.Create(R.Left + 10 * FScale, R.Top + 34 * FScale, R.Right - 10 * FScale, R.Bottom - 28 * FScale);
     DetailRect := TRectF.Create(R.Left + 10 * FScale, R.Bottom - 28 * FScale, R.Right - 10 * FScale, R.Bottom - 6 * FScale);
-    Text(ACanvas, NameRect, FSnapshot.Services[I].Name, 12, CMuted);
-    if FSnapshot.Services[I].Available then
-      ValueText := CompactValue(FSnapshot.Services[I].Value, FSnapshot.Services[I].UnitText)
+    Text(ACanvas, NameRect, Services[I].Name, 12, CMuted);
+    if Services[I].Available then
+      ValueText := CompactValue(Services[I].Value, Services[I].UnitText)
     else
       ValueText := '–';
     ValueFontSize := 31;
@@ -614,12 +625,93 @@ begin
     if (MeasuredWidth > 0) and (MeasuredWidth > ValueRect.Width) then
       ValueFontSize := Max(20, ValueFontSize * ValueRect.Width / MeasuredWidth);
     Text(ACanvas, ValueRect, ValueText, ValueFontSize, CText, True);
-    if FSnapshot.Services[I].Available then
-      Detail := CompactNumber(FSnapshot.Services[I].Requests) + ' Anfragen'
+    if Services[I].Available then
+      Detail := CompactNumber(Services[I].Requests) + ' Anfragen'
     else
       Detail := 'nicht verfügbar';
     Text(ACanvas, DetailRect, Detail, 9, CMuted);
   end;
+  if FooterH > 0 then
+  begin
+    HiddenUsed := 0;
+    for I := Count to High(Services) do
+      if Services[I].Available and ((Services[I].Requests > 0) or (Services[I].Value > 0)) then
+        Inc(HiddenUsed);
+    Detail := Format('+%d weitere Dienste', [Length(Services) - Count]);
+    if HiddenUsed > 0 then
+      Detail := Detail + Format(' (%d mit Nutzung)', [HiddenUsed]);
+    Text(ACanvas, TRectF.Create(ARect.Left + 15 * FScale, ARect.Bottom - FooterH,
+      ARect.Right - 12 * FScale, ARect.Bottom - 2 * FScale), Detail, 8, CMuted);
+  end;
+end;
+
+procedure TDashboardRenderer.DrawModelReference(const ACanvas: TCanvas; const ARect: TRectF);
+var
+  I, Count: Integer;
+  RowH, BodyTop, BodyBottom, Y, NameSize, FooterTop: Single;
+  NameRect, InputRect, OutputRect, IndexRect: TRectF;
+  Score, Detail: string;
+begin
+  Box(ACanvas, ARect, CPanel, CBorder);
+  Text(ACanvas, TRectF.Create(ARect.Left + 12 * FScale, ARect.Top + 7 * FScale,
+    ARect.Right - 10 * FScale, ARect.Top + 35 * FScale), 'Modellvergleich', 15, CText, True);
+  NameRect := TRectF.Create(ARect.Left + 12 * FScale, ARect.Top + 34 * FScale,
+    ARect.Right - 10 * FScale, ARect.Top + 55 * FScale);
+  InputRect := TRectF.Create(NameRect.Left, NameRect.Top,
+    NameRect.Left + NameRect.Width * 0.38, NameRect.Bottom);
+  OutputRect := TRectF.Create(InputRect.Right, NameRect.Top,
+    NameRect.Left + NameRect.Width * 0.78, NameRect.Bottom);
+  IndexRect := TRectF.Create(OutputRect.Right, NameRect.Top, NameRect.Right, NameRect.Bottom);
+  Text(ACanvas, InputRect, 'Eingabe', 9, CMuted);
+  Text(ACanvas, OutputRect, 'Ausgabe', 9, CMuted);
+  Text(ACanvas, IndexRect, 'Index', 9, CMuted, False, TTextAlign.Trailing);
+  BodyTop := ARect.Top + 63 * FScale;
+  FooterTop := ARect.Bottom - 96 * FScale;
+  BodyBottom := FooterTop - 5 * FScale;
+  RowH := 66 * FScale;
+  Count := Min(Length(FModelReferences), Max(0, Floor((BodyBottom - BodyTop) / RowH)));
+  for I := 0 to Count - 1 do
+  begin
+    Y := BodyTop + I * RowH;
+    NameRect := TRectF.Create(ARect.Left + 12 * FScale, Y,
+      ARect.Right - 10 * FScale, Y + 33 * FScale);
+    NameSize := 25.2; // Same hierarchy as the request value in Top API Models.
+    repeat
+      SetFont(ACanvas, NameSize, True);
+      if (ACanvas.TextWidth(FModelReferences[I].Name) <= NameRect.Width) or (NameSize <= 12) then
+        Break;
+      NameSize := NameSize - 0.5;
+    until False;
+    Text(ACanvas, NameRect, FModelReferences[I].Name, NameSize, CText, True);
+    InputRect.Top := Y + 33 * FScale;
+    InputRect.Bottom := Y + 56 * FScale;
+    OutputRect.Top := InputRect.Top;
+    OutputRect.Bottom := InputRect.Bottom;
+    IndexRect.Top := InputRect.Top;
+    IndexRect.Bottom := InputRect.Bottom;
+    Text(ACanvas, InputRect, FormatMoney(FModelReferences[I].InputPerMillion, 'USD'),
+      13.5, CGreen);
+    Text(ACanvas, OutputRect, FormatMoney(FModelReferences[I].OutputPerMillion, 'USD'),
+      13.5, CGreen);
+    if FModelReferences[I].Intelligence >= 0 then
+      Score := IntToStr(FModelReferences[I].Intelligence)
+    else
+      Score := '–';
+    Text(ACanvas, IndexRect, Score, 13.5, CBlue, True, TTextAlign.Trailing);
+  end;
+  Detail := ModelReferenceIndex;
+  if Count < Length(FModelReferences) then
+    Detail := Detail + Format(' · +%d', [Length(FModelReferences) - Count]);
+  Text(ACanvas, TRectF.Create(ARect.Left + 12 * FScale, FooterTop,
+    ARect.Right - 10 * FScale, FooterTop + 18 * FScale), Detail, 8, CMuted);
+  Text(ACanvas, TRectF.Create(ARect.Left + 12 * FScale, FooterTop + 18 * FScale,
+    ARect.Right - 10 * FScale, FooterTop + 36 * FScale), 'USD je 1 Mio. Tokens', 8, CMuted);
+  Text(ACanvas, TRectF.Create(ARect.Left + 12 * FScale, FooterTop + 36 * FScale,
+    ARect.Right - 10 * FScale, FooterTop + 54 * FScale), 'Standard · ohne Cache', 8, CMuted);
+  Text(ACanvas, TRectF.Create(ARect.Left + 12 * FScale, FooterTop + 54 * FScale,
+    ARect.Right - 10 * FScale, FooterTop + 72 * FScale), 'OpenAI / artificialanalysis.ai', 8, CMuted);
+  Text(ACanvas, TRectF.Create(ARect.Left + 12 * FScale, FooterTop + 72 * FScale,
+    ARect.Right - 10 * FScale, FooterTop + 90 * FScale), 'Stand ' + ModelReferenceDate, 8, CMuted);
 end;
 
 procedure TDashboardRenderer.DrawLimits(const ACanvas: TCanvas; const ARect: TRectF);
@@ -627,7 +719,7 @@ var
   Count, I, Cards: Integer;
   Gap, CardW, X, Pct: Single;
   R, Track, Fill: TRectF;
-  ResetText, NameText: string;
+  ResetText, NameText, CreditText, BalanceText: string;
 begin
   Box(ACanvas, ARect, CBluePanel, CBlueBorder);
   Text(ACanvas, TRectF.Create(ARect.Left + 15 * FScale, ARect.Top + 5 * FScale,
@@ -681,7 +773,36 @@ begin
         ResetText := WindowName + ' · Reset ' + FormatDateTime('dd.mm. hh:nn', ResetsAt)
       else
         ResetText := WindowName;
-      Text(ACanvas, TRectF.Create(R.Left + 10 * FScale, R.Top + 45 * FScale, R.Right - 10 * FScale, R.Bottom - 3 * FScale), ResetText, 8, CMuted);
+      if Available and (UsedPercent >= 100) and Id.StartsWith('codex', True) then
+      begin
+        Text(ACanvas, TRectF.Create(R.Left + 10 * FScale, R.Top + 45 * FScale,
+          R.Right - 10 * FScale, R.Top + 62 * FScale), ResetText, 8, CMuted);
+        if UsesCredits then
+          CreditText := 'Credits werden verbraucht'
+        else if CreditUsageBlocked then
+          CreditText := 'Credit-Nutzung gesperrt'
+        else if CreditsAvailable then
+          CreditText := 'Keine Credits verfügbar'
+        else
+          CreditText := 'Credit-Guthaben nicht verfügbar';
+        BalanceText := '';
+        if CreditsAvailable then
+        begin
+          if UnlimitedCredits then
+            BalanceText := 'Unbegrenzte Credits'
+          else if CreditBalanceAvailable then
+            BalanceText := 'Noch ' + FormatFloat('#,##0.##', CreditBalance,
+              GermanFormatSettings) + ' Credits'
+          else
+            BalanceText := 'Restguthaben nicht gemeldet';
+        end;
+        Text(ACanvas, TRectF.Create(R.Left + 10 * FScale, R.Top + 62 * FScale,
+          R.Right - 10 * FScale, R.Top + 80 * FScale), CreditText, 8, CWarning, True);
+        Text(ACanvas, TRectF.Create(R.Left + 10 * FScale, R.Top + 80 * FScale,
+          R.Right - 10 * FScale, R.Bottom - 3 * FScale), BalanceText, 8, CText);
+      end
+      else
+        Text(ACanvas, TRectF.Create(R.Left + 10 * FScale, R.Top + 45 * FScale, R.Right - 10 * FScale, R.Bottom - 3 * FScale), ResetText, 8, CMuted);
     end;
     Inc(I);
   end;
@@ -755,7 +876,7 @@ end;
 procedure TDashboardRenderer.Render(const ACanvas: TCanvas; const ARect: TRectF);
 var
   Margin, Gap, HeaderH, KpiH, ContentTop, ContentBottom, ColLeftW,
-    SideW, Left, Top, KpiW, SideTop, ModelH, FooterH: Single;
+    SideW, Left, Top, KpiW, SideTop, ModelH, FooterH, LimitsTop, ServicesW: Single;
   I: Integer;
   KpiRects: array[0..3] of TRectF;
   LimitPct, Detail: string;
@@ -791,14 +912,26 @@ begin
   SideW := ARect.Width - 2 * Margin - Gap - ColLeftW;
   SideTop := ContentTop;
   ModelH := (ContentBottom - ContentTop) * 0.36;
-  DrawChart(ACanvas, TRectF.Create(ARect.Left + Margin, ContentTop, ARect.Left + Margin + ColLeftW, ContentTop + (ContentBottom - ContentTop) * 0.61));
-  DrawLimits(ACanvas, TRectF.Create(ARect.Left + Margin, ContentTop + (ContentBottom - ContentTop) * 0.61 + Gap,
+  LimitsTop := ContentTop + (ContentBottom - ContentTop) * 0.61;
+  for I := 0 to Min(Length(FSnapshot.RateLimits), 4 - Ord(FSnapshot.SpendingLimit > 0)) - 1 do
+    if FSnapshot.RateLimits[I].Available and
+      (FSnapshot.RateLimits[I].UsedPercent >= 100) and
+      FSnapshot.RateLimits[I].Id.StartsWith('codex', True) then
+    begin
+      LimitsTop := LimitsTop - 38 * FScale;
+      Break;
+    end;
+  DrawChart(ACanvas, TRectF.Create(ARect.Left + Margin, ContentTop, ARect.Left + Margin + ColLeftW, LimitsTop));
+  DrawLimits(ACanvas, TRectF.Create(ARect.Left + Margin, LimitsTop + Gap,
     ARect.Left + Margin + ColLeftW, ContentTop + (ContentBottom - ContentTop) * 0.78));
   DrawCodex(ACanvas, TRectF.Create(ARect.Left + Margin, ContentTop + (ContentBottom - ContentTop) * 0.78 + Gap,
     ARect.Left + Margin + ColLeftW, ContentBottom));
   Left := ARect.Left + Margin + ColLeftW + Gap;
   DrawModels(ACanvas, TRectF.Create(Left, SideTop, Left + SideW, SideTop + ModelH));
-  DrawServices(ACanvas, TRectF.Create(Left, SideTop + ModelH + Gap, Left + SideW, ContentBottom));
+  ServicesW := (SideW - Gap) * 2 / 3;
+  DrawServices(ACanvas, TRectF.Create(Left, SideTop + ModelH + Gap, Left + ServicesW, ContentBottom));
+  DrawModelReference(ACanvas, TRectF.Create(Left + ServicesW + Gap,
+    SideTop + ModelH + Gap, Left + SideW, ContentBottom));
   if FSnapshot.SpendingLimit > 0 then
     LimitPct := FormatFloat('0', 100 * FSnapshot.PeriodCost / FSnapshot.SpendingLimit) + '%'
   else

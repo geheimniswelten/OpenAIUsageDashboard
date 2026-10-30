@@ -162,6 +162,97 @@ begin
     'Duration labels changed reset times');
 end;
 
+procedure TestUsageCredits;
+var
+  Client: TTestClient;
+  Snapshot, CopySnapshot: TUsageSnapshot;
+
+  procedure ReadCredits(const ACredits: string; const AExtra: string = '');
+  begin
+    Client.Limits(Snapshot, '{"rateLimits":{"limitId":"codex",' +
+      '"primary":{"usedPercent":100,"windowDurationMins":10080},' +
+      '"credits":' + ACredits + AExtra + '},' +
+      '"rateLimitResetCredits":{"availableCount":2}}');
+  end;
+
+begin
+  Client := TTestClient.Create;
+  Snapshot := TUsageSnapshot.Create;
+  CopySnapshot := TUsageSnapshot.Create;
+  try
+    ReadCredits('{"hasCredits":true,"unlimited":false,"balance":"39763.8542690000"}');
+    Check(Snapshot.RateLimits[0].UsesCredits and
+      Snapshot.RateLimits[0].CreditBalanceAvailable and
+      (Abs(Snapshot.RateLimits[0].CreditBalance - 39763.854269) < 0.000001),
+      'A full quota must expose the purchased credit balance');
+    Check(Snapshot.CodexResetCredits = 2, 'Reset credits must remain a separate value');
+    CopySnapshot.Assign(Snapshot);
+    Check(CopySnapshot.RateLimits[0].UsesCredits and
+      (CopySnapshot.RateLimits[0].CreditBalance = Snapshot.RateLimits[0].CreditBalance),
+      'Assign lost the credit state');
+    CopySnapshot.FromJson(Snapshot.ToJson);
+    Check(CopySnapshot.RateLimits[0].UsesCredits and
+      (Abs(CopySnapshot.RateLimits[0].CreditBalance - 39763.854269) < 0.000001),
+      'Viewer/cache JSON lost the credit balance');
+    Snapshot.RateLimits[0].UsedPercent := 99;
+    Check(not Snapshot.RateLimits[0].UsesCredits, 'An available quota is not credit usage');
+
+    ReadCredits('{"hasCredits":true,"unlimited":false,"balance":null}');
+    Check(Snapshot.RateLimits[0].UsesCredits and
+      not Snapshot.RateLimits[0].CreditBalanceAvailable,
+      'Null balance must remain unknown even if credits are available');
+    CopySnapshot.FromJson(Snapshot.ToJson);
+    Check(not CopySnapshot.RateLimits[0].CreditBalanceAvailable,
+      'Unknown balance became zero during viewer transfer');
+    ReadCredits('null');
+    Check(not Snapshot.RateLimits[0].CreditsAvailable and
+      not Snapshot.RateLimits[0].UsesCredits, 'Null credits must clear the previous balance');
+    ReadCredits('{"hasCredits":false,"unlimited":false,"balance":"0"}');
+    Check(Snapshot.RateLimits[0].CreditBalanceAvailable and
+      (Snapshot.RateLimits[0].CreditBalance = 0) and
+      not Snapshot.RateLimits[0].UsesCredits, 'Reported zero is known and cannot fund usage');
+    ReadCredits('{"hasCredits":true,"unlimited":true,"balance":null}');
+    CopySnapshot.FromJson(Snapshot.ToJson);
+    Check(CopySnapshot.RateLimits[0].UsesCredits and CopySnapshot.RateLimits[0].UnlimitedCredits,
+      'Unlimited credits must survive viewer transfer');
+    ReadCredits('{"hasCredits":true,"unlimited":false,"balance":12.5}');
+    Check(Snapshot.RateLimits[0].CreditBalanceAvailable and
+      (Snapshot.RateLimits[0].CreditBalance = 12.5), 'Numeric balances must also be accepted');
+    ReadCredits('{"hasCredits":true,"unlimited":false,"balance":"invalid"}');
+    Check(not Snapshot.RateLimits[0].CreditBalanceAvailable, 'Invalid balance became a number');
+    ReadCredits('{"hasCredits":true,"unlimited":false,"balance":"NaN"}');
+    Check(not Snapshot.RateLimits[0].CreditBalanceAvailable, 'Nonfinite balance was accepted');
+    ReadCredits('{"hasCredits":true,"unlimited":false,"balance":"100"}',
+      ',"spendControlReached":true');
+    CopySnapshot.FromJson(Snapshot.ToJson);
+    Check(not CopySnapshot.RateLimits[0].UsesCredits and CopySnapshot.RateLimits[0].CreditUsageBlocked,
+      'A spend-control block must not claim ongoing credit usage');
+    ReadCredits('{"hasCredits":true,"unlimited":false,"balance":"100"}',
+      ',"rateLimitReachedType":"workspace_member_usage_limit_reached"');
+    Check(not Snapshot.RateLimits[0].UsesCredits, 'A workspace usage block must take precedence');
+
+    Client.Limits(Snapshot, '{"rateLimitsByLimitId":{' +
+      '"codex":{"limitId":"codex","primary":{"usedPercent":100},' +
+      '"secondary":{"usedPercent":20},"credits":{"hasCredits":true,' +
+      '"unlimited":false,"balance":"42"}},' +
+      '"spark":{"limitId":"spark","primary":{"usedPercent":100},"credits":null}}}');
+    Check((Length(Snapshot.RateLimits) = 3) and Snapshot.RateLimits[0].UsesCredits and
+      (Snapshot.RateLimits[1].CreditBalance = 42) and
+      not Snapshot.RateLimits[1].UsesCredits and not Snapshot.RateLimits[2].CreditsAvailable,
+      'Credits must stay with their bucket and only full windows indicate credit usage');
+    CopySnapshot.FromJson('{"rateLimits":[{"id":"codex","usedPercent":100,"available":true}]}');
+    Check(not CopySnapshot.RateLimits[0].CreditsAvailable and
+      not CopySnapshot.RateLimits[0].CreditBalanceAvailable,
+      'Old snapshots must not invent credit information');
+    CopySnapshot.Clear;
+    Check(Length(CopySnapshot.RateLimits) = 0, 'Clear retained credit-bearing windows');
+  finally
+    CopySnapshot.Free;
+    Snapshot.Free;
+    Client.Free;
+  end;
+end;
+
 procedure RunTests;
 var
   Client: TTestClient;
@@ -280,6 +371,7 @@ begin
   try
     TestDashboardHome;
     TestChildEnvironment;
+    TestUsageCredits;
     RunTests;
     Writeln('CODEX_PARSER_TESTS_OK');
   except

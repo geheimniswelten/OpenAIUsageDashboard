@@ -838,9 +838,9 @@ end;
 procedure AddRateLimitWindow(var ALimits: TArray<TRateLimitWindow>;
   const ALimit: TJSONObject; const APropertyName, ADisplayName: string);
 var
-  Window: TJSONObject;
-  Used: Double;
-  LimitId, LimitName: string;
+  Window, Credits: TJSONObject;
+  Used, Balance: Double;
+  LimitId, LimitName, ReachedType: string;
   ResetSeconds: Int64;
   N: Integer;
 begin
@@ -870,6 +870,27 @@ begin
   else
     ALimits[N].ResetsAt := 0;
   ALimits[N].Available := True;
+  { Purchased usage credits belong to this bucket, separately from earned
+    rateLimitResetCredits. Missing/null balances must never become zero. }
+  Credits := JsonObjectValue(ALimit, 'credits');
+  ALimits[N].CreditsAvailable := (Credits <> nil) and
+    (Credits.GetValue('hasCredits') is TJSONBool) and
+    (Credits.GetValue('unlimited') is TJSONBool);
+  if ALimits[N].CreditsAvailable then
+  begin
+    ALimits[N].HasCredits := JsonBool(Credits, 'hasCredits');
+    ALimits[N].UnlimitedCredits := JsonBool(Credits, 'unlimited');
+    if TryStrToFloat(JsonString(Credits, 'balance', ''), Balance,
+      TFormatSettings.Invariant) and not IsNan(Balance) and
+      not IsInfinite(Balance) and (Balance >= 0) then
+    begin
+      ALimits[N].CreditBalance := Balance;
+      ALimits[N].CreditBalanceAvailable := True;
+    end;
+  end;
+  ReachedType := JsonString(ALimit, 'rateLimitReachedType', '');
+  ALimits[N].CreditUsageBlocked := JsonBool(ALimit, 'spendControlReached') or
+    ((ReachedType <> '') and (ReachedType <> 'rate_limit_reached'));
 end;
 
 procedure ParseLimitObject(var ALimits: TArray<TRateLimitWindow>;

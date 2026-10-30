@@ -54,6 +54,13 @@ type
     WindowMinutes: Integer;
     ResetsAt: TDateTime;
     Available: Boolean;
+    CreditsAvailable: Boolean;
+    HasCredits: Boolean;
+    UnlimitedCredits: Boolean;
+    CreditBalanceAvailable: Boolean;
+    CreditBalance: Double;
+    CreditUsageBlocked: Boolean;
+    function UsesCredits: Boolean;
   end;
 
   TForecastPoint = record
@@ -104,6 +111,7 @@ type
     procedure Recalculate(const AAsOfUtc: TDateTime = 0);
     procedure MakeDemo;
     function GetDailyChartDays(const ACount: Integer = 14): TArray<TDailyChartDay>;
+    function GetServicesByUsage: TArray<TServiceUsage>;
     function ToJson: string;
     procedure FromJson(const AJson: string);
   end;
@@ -233,6 +241,13 @@ begin
      TryStrToInt(Copy(S, 1, 4), Y) and TryStrToInt(Copy(S, 6, 2), M) and
      TryStrToInt(Copy(S, 9, 2), D) then
     TryEncodeDate(Y, M, D, Result);
+end;
+
+function TRateLimitWindow.UsesCredits: Boolean;
+begin
+  Result := Available and (UsedPercent >= 100) and CreditsAvailable and
+    not CreditUsageBlocked and (UnlimitedCredits or
+    (HasCredits and (not CreditBalanceAvailable or (CreditBalance > 0))));
 end;
 
 { TUsageSnapshot }
@@ -442,6 +457,51 @@ begin
   end;
 end;
 
+function TUsageSnapshot.GetServicesByUsage: TArray<TServiceUsage>;
+var
+  I, J: Integer;
+  Item: TServiceUsage;
+
+  function UsageRank(const AService: TServiceUsage): Integer;
+  begin
+    if not AService.Available then
+      Exit(0);
+    if (AService.Requests > 0) or (AService.Value > 0) then
+      Exit(2);
+    Result := 1;
+  end;
+
+  function Before(const A, B: TServiceUsage): Boolean;
+  var
+    ARank, BRank: Integer;
+  begin
+    ARank := UsageRank(A);
+    BRank := UsageRank(B);
+    if ARank <> BRank then
+      Exit(ARank > BRank);
+    // Requests are comparable; bytes, tokens, seconds and images are not.
+    Result := (ARank = 2) and (A.Requests > B.Requests);
+  end;
+
+begin
+  Result := Copy(Services);
+  // Stable ordering for equal request counts and zero/unavailable services.
+  // Keep the complete snapshot intact for transport and other consumers.
+  for I := 1 to High(Result) do
+  begin
+    Item := Result[I];
+    J := I - 1;
+    while J >= 0 do
+    begin
+      if not Before(Item, Result[J]) then
+        Break;
+      Result[J + 1] := Result[J];
+      Dec(J);
+    end;
+    Result[J + 1] := Item;
+  end;
+end;
+
 procedure TUsageSnapshot.MakeDemo;
 const
   DemoModels: array[0..4] of string =
@@ -488,7 +548,7 @@ begin
     Models[I].Requests := 170 - I * 31;
     Models[I].Tokens := 2900000 div (I + 1);
   end;
-  SetLength(Services, 6);
+  SetLength(Services, 9);
   Services[0].Name := 'Bilder';
   Services[0].UnitText := '';
   Services[0].Available := True;
@@ -498,6 +558,8 @@ begin
   Services[1].Requests := 40;
   Services[1].Available := True;
   Services[2].Name := 'Websuche';
+  Services[2].Value := 6;
+  Services[2].Requests := 6;
   Services[2].Available := True;
   Services[3].Name := 'Dateisuche';
   Services[3].Available := True;
@@ -507,6 +569,15 @@ begin
   Services[5].Name := 'Code Interpreter';
   Services[5].UnitText := 'Sitzungen';
   Services[5].Available := True;
+  Services[6].Name := 'Sprachausgabe';
+  Services[6].UnitText := 'Zeichen';
+  Services[6].Available := True;
+  Services[7].Name := 'Vector Stores';
+  Services[7].UnitText := 'B';
+  Services[7].Available := True;
+  Services[8].Name := 'Moderation';
+  Services[8].UnitText := 'Tokens';
+  Services[8].Available := True;
   SetLength(RateLimits, 2);
   RateLimits[0].Id := 'codex';
   RateLimits[0].Name := 'Codex';
@@ -629,6 +700,14 @@ begin
       Item.AddPair('windowMinutes', TJSONNumber.Create(RateLimits[I].WindowMinutes));
       AddDatePair(Item, 'resetsAt', RateLimits[I].ResetsAt);
       Item.AddPair('available', TJSONBool.Create(RateLimits[I].Available));
+      Item.AddPair('creditsAvailable', TJSONBool.Create(RateLimits[I].CreditsAvailable));
+      Item.AddPair('hasCredits', TJSONBool.Create(RateLimits[I].HasCredits));
+      Item.AddPair('unlimitedCredits', TJSONBool.Create(RateLimits[I].UnlimitedCredits));
+      if RateLimits[I].CreditBalanceAvailable then
+        Item.AddPair('creditBalance', TJSONNumber.Create(RateLimits[I].CreditBalance))
+      else
+        Item.AddPair('creditBalance', TJSONNull.Create);
+      Item.AddPair('creditUsageBlocked', TJSONBool.Create(RateLimits[I].CreditUsageBlocked));
       A.AddElement(Item);
     end;
     A := TJSONArray.Create;
@@ -755,6 +834,12 @@ begin
         RateLimits[I].WindowMinutes := JsonInt64(Item, 'windowMinutes');
         RateLimits[I].ResetsAt := ReadDate(Item, 'resetsAt');
         RateLimits[I].Available := JsonBool(Item, 'available');
+        RateLimits[I].CreditsAvailable := JsonBool(Item, 'creditsAvailable');
+        RateLimits[I].HasCredits := JsonBool(Item, 'hasCredits');
+        RateLimits[I].UnlimitedCredits := JsonBool(Item, 'unlimitedCredits');
+        RateLimits[I].CreditBalanceAvailable := Item.GetValue('creditBalance') is TJSONNumber;
+        RateLimits[I].CreditBalance := JsonFloat(Item, 'creditBalance');
+        RateLimits[I].CreditUsageBlocked := JsonBool(Item, 'creditUsageBlocked');
       end;
     end;
     A := Root.GetValue('forecast') as TJSONArray;

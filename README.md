@@ -16,6 +16,10 @@ Browser werden zur Laufzeit nicht benötigt.
 - Modellnamen etwa 25 %, Anfragen 80 % und Tokens 50 % größer als ursprünglich;
   die Zusatzdienste verwenden dieselbe Caption-/Wert-/Detail-Typografie wie die
   Codex-Kennzahlen
+- API-Dienste nach Nutzung sortiert, maximal sechs Karten im 2×3-Raster;
+  weitere Dienste bleiben im Snapshot erhalten
+- rechts daneben eine Modellvergleichsliste mit großem Namen, Tokenpreis und
+  Intelligence Index; Datenstand, Preisbasis und Quellen sind sichtbar
 - Ausgabenlimit mit Prozentbalken und Limitlinie im Kostendiagramm
 - 14 Kalendertage einschließlich heute (UTC): grüne Kostenbalken und schmale blaue
   Balken für API-Modellanfragen mit eigener Skala und täglichen Zahlenwerten;
@@ -341,7 +345,32 @@ die Touchflächen oder Schrift zu verkleinern.
   einzelne `.previous`-Datei vorgehalten. Ein protokollierter Einschaltbefehl oder
   Windows-Zustand ist keine Bestätigung eines physisch eingeschalteten Monitors.
 - Android: `FLAG_KEEP_SCREEN_ON` wird im selben Zeitfenster dynamisch auf Activity
-  und Presentation gesetzt beziehungsweise entfernt.
+  und Presentation gesetzt beziehungsweise entfernt. Zusätzlich weckt ein nativer
+  Android-Systemtermin das Display zum Beginn des nächsten Werktags (standardmäßig
+  Montag bis Freitag um 10:00 Uhr), auch wenn der FMX-Timer im Ruhezustand pausiert.
+  Wochenenden werden übersprungen; Zeitzone, Sommer-/Winterzeit, Uhränderungen,
+  Geräte-Neustarts und App-Updates werden bei der Terminplanung berücksichtigt.
+
+Für das Android-Wanddisplay die Bildschirmsperre auf **Keine** setzen und das
+Dashboard geöffnet lassen. **Weckzeit erlauben** in den App-Einstellungen öffnet
+bei Bedarf Androids Freigabe **Wecker und Erinnerungen**. Ohne diese Freigabe kann
+Android den Termin verzögert zustellen; die App zeigt das an. Eine PIN oder ein
+Passwort wird nicht automatisch entsperrt. **App beenden** löscht die Wecktermine;
+beim nächsten App-Start werden sie wieder eingerichtet.
+
+**Aufwecken testen** setzt einen separaten Termin in 30 Sekunden. Danach das
+Display mit der Ein/Aus-Taste ausschalten. Der reguläre Werktagstermin bleibt
+bestehen. In den Einstellungen stehen der nächste Termin und das Ergebnis des
+letzten Einschaltversuchs. Der kurze Bildschirm-Wake-Lock läuft nach 15 Sekunden
+ab; innerhalb der Anzeigezeit hält anschließend die sichtbare Activity den
+Bildschirm weiter eingeschaltet. Außerhalb der Anzeigezeit gilt wieder das normale
+Android-Displaytimeout. Das Starten einer inzwischen vom System beendeten App und
+Einschalten auf anderen Android-Versionen unterliegt den jeweiligen
+Hintergrund- und Gerätebeschränkungen.
+
+Die Java-Anbindung wird durch `android/DashboardWake.targets` automatisch mit dem
+in RAD Studio konfigurierten JDK/Android-SDK gebaut und als JAR in die APK
+aufgenommen. Es ist kein zusätzlicher manueller JAR-Import notwendig.
 
 Die Protokolle vom 7./8. Oktober 2026 zeigen nach jedem Einschaltbefehl nur etwa
 eine Sekunde `on`, dann wieder `off`. Dadurch startete die bisherige Logik ständig
@@ -413,10 +442,15 @@ OtherDisplayIdleMinutes=10
   Zusammenfassung von Anforderungen, stille Zweitstarts, Beenden/Neustart und
   Wiederanlauf nach verlassenem Mutex. Der optionale Aufruf `--app <EXE>` prüft
   zusätzlich die Zweitstartpfade der gebauten Anwendung, ohne deren Sammler zu starten.
-- Alle gemeinsam genutzten Units einschließlich Android-Presentation-Code wurden
-  mit dem Android64-Compiler übersetzt. Der aktuelle Linktest scheitert an dem auf
-  diesem Rechner fehlenden `ldandroid.exe`; eine neue Android-Library/APK ist
-  daher für diese Änderung nicht verifiziert.
+- Android64 Debug wurde am 30.10.2026 vollständig gebaut, paketiert und als Update
+  auf dem Active 10 Pro (Android 14) installiert. Beim 30-Sekunden-Wecktest wechselte
+  das Gerät ohne Eingabe von `Asleep` auf `Awake`; das Dashboard war sichtbar und
+  blieb auch nach Ablauf des kurzen Wake-Locks eingeschaltet. Der nächste reguläre
+  Termin wurde für Montag, 02.11.2026, 10:00 Uhr exakt registriert. Ein ganzer
+  Nacht-/Wochenendlauf sowie andere Android-Versionen sind damit noch nicht geprüft.
+- `tests/WakeScheduleTest.java` besteht 14 Prüfungen für Werktage, Wochenenden,
+  Anfang/Ende der Anzeigezeit, Jahreswechsel, Sommer-/Winterzeit und ungültige
+  Zeitintervalle; es benötigt nur das JDK, kein Android-Gerät.
 - `tests/Dashboard.Tests.dpr` prüft Prognose (inklusive Ausschluss des heutigen
   Tages), JSON-Roundtrip, Tagesnutzung und authentifizierten Snapshot-Transport.
 - `tests/OpenAI.Tests.dpr` prüft ohne API-Aufruf UTC-Tages-/Monatsgrenzen,
@@ -496,3 +530,16 @@ zwei Abfrageintervallen, mindestens zwei Minuten, als veraltet. Ein neues
 Limitfenster oder eine deutliche Budgeterholung (mindestens 20 Prozentpunkte)
 aktiviert die Schwellen erneut. Nach einem Programmneustart kann der bereits
 niedrige aktuelle Restwert einmal erneut gemeldet werden.
+
+## Modellpreise und Intelligence Index
+
+Der rechte Teil der bisherigen Dienstekarten zeigt jetzt einen Modellvergleich.
+Die Datenzeile zeigt die Standard-API-Preise für **Eingabe und Ausgabe getrennt**,
+jeweils in USD pro Million Tokens und ohne Cache. Sie ist eine Tariforientierung; Tokenverbrauch und Kosten
+pro Anfrage können je Modell und Reasoning-Stufe unterschiedlich ausfallen.
+Die Intelligence-Werte stammen von Artificial Analysis (v5.0, jeweils max).
+Fehlende vergleichbare Bewertungen erscheinen als `–`.
+
+Die Referenzwerte sind mit Standdatum eingebunden und werden nicht automatisch
+aktualisiert. Preisbasis, vollständige Liste, Quellen und Prüfergebnisse stehen
+in [docs/ModelReference.md](docs/ModelReference.md).

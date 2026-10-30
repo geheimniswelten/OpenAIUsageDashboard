@@ -73,6 +73,9 @@ type
     FIdleEdit: TEdit;
     FMessageLabel: TLabel;
     FDataStatusLabel: TLabel;
+    {$IFDEF ANDROID}
+      FWakeStatusLabel: TLabel;
+    {$ENDIF}
     FSnapshot: TUsageSnapshot;
     FSettings: TDashboardSettings;
     FRenderer: TDashboardRenderer;
@@ -144,6 +147,8 @@ type
     procedure StartPublisher;
     procedure UpdateExternalDisplay(const AForce: Boolean);
     {$IFDEF ANDROID}
+      procedure AllowAndroidWake(Sender: TObject);
+      procedure TestAndroidWake(Sender: TObject);
       procedure RevealCompanion;
     {$IFEND}
     procedure RenderPreviewAndExit;
@@ -169,6 +174,9 @@ uses
   System.Math,
   System.IOUtils,
   FMX.TextLayout,
+  {$IFDEF ANDROID}
+    Dashboard.AndroidWake,
+  {$ENDIF}
   FMX.BehaviorManager,
   Dashboard.Secrets
   {$IFDEF MSWINDOWS}
@@ -588,6 +596,13 @@ begin
       NewButton('Jetzt aktualisieren', SaveSettings)], 180);
   {$IFEND}
   FDataStatusLabel := AddSettingsLabel('Codex: noch nicht abgefragt.', 28, 642, 604);
+  {$IFDEF ANDROID}
+    FWakeStatusLabel := AddSettingsLabel('Automatisches Aufwecken wird vorbereitet.', 28, 0, 604);
+    FWakeStatusLabel.Height := 70;
+    AddSettingsRow([FWakeStatusLabel]);
+    AddSettingsRow([NewButton('Weckzeit erlauben', AllowAndroidWake),
+      NewButton('Aufwecken testen', TestAndroidWake)], 260);
+  {$ENDIF}
   FDataStatusLabel.Height := 120;
   FDataStatusLabel.WordWrap := True;
   FDataStatusLabel.TextSettings.VertAlign := TTextAlign.Leading;
@@ -638,17 +653,24 @@ procedure TMainForm.RenderPreviewAndExit;
 var
   Bitmap: TBitmap;
   FileName: string;
+  PreviewWidth, PreviewHeight: Integer;
 begin
   FSnapshot.MakeDemo;
   FileName := IncludeTrailingPathDelimiter(ExtractFilePath(ParamStr(0))) + 'dashboard-preview.png';
   if ParamCount >= 2 then
     FileName := ExpandFileName(ParamStr(2));
+  PreviewWidth := 1920;
+  PreviewHeight := 1080;
+  if ParamCount >= 3 then
+    PreviewWidth := EnsureRange(StrToIntDef(ParamStr(3), PreviewWidth), 640, 8192);
+  if ParamCount >= 4 then
+    PreviewHeight := EnsureRange(StrToIntDef(ParamStr(4), PreviewHeight), 480, 8192);
   try
-    Bitmap := TBitmap.Create(1920, 1080);
+    Bitmap := TBitmap.Create(PreviewWidth, PreviewHeight);
     try
       if Bitmap.Canvas.BeginScene then
       try
-        FRenderer.Render(Bitmap.Canvas, TRectF.Create(0, 0, 1920, 1080));
+        FRenderer.Render(Bitmap.Canvas, TRectF.Create(0, 0, PreviewWidth, PreviewHeight));
       finally
         Bitmap.Canvas.EndScene;
       end;
@@ -1099,8 +1121,24 @@ end;
 procedure TMainForm.ExitApplication(Sender: TObject);
 begin
   RegisterInteraction;
+  {$IFDEF ANDROID}
+    TAndroidDisplayWake.Stop;
+  {$ENDIF}
   Application.Terminate;
 end;
+
+{$IFDEF ANDROID}
+procedure TMainForm.AllowAndroidWake(Sender: TObject);
+begin
+  TAndroidDisplayWake.RequestPermission;
+end;
+
+procedure TMainForm.TestAndroidWake(Sender: TObject);
+begin
+  FMessageLabel.Text := TAndroidDisplayWake.Test;
+  LayoutSettingsControls;
+end;
+{$ENDIF}
 
 {$IFDEF MSWINDOWS}
 class procedure TMainForm.AttachInstance(const AInstanceGuard: TDashboardInstance);
@@ -1590,6 +1628,13 @@ begin
   if (FWorker <> nil) and FWorker.Finished and not FFetching then
     FreeAndNil(FWorker);
   FPlatform.Tick(FSettings.KeepAwakeStartHour, FSettings.KeepAwakeEndHour, FSettings.OtherDisplayIdleMinutes);
+  {$IFDEF ANDROID}
+    if FSettingsPanel.Visible and (FWakeStatusLabel.Text <> TAndroidDisplayWake.Status) then
+    begin
+      FWakeStatusLabel.Text := TAndroidDisplayWake.Status;
+      LayoutSettingsControls;
+    end;
+  {$ENDIF}
   {$IFDEF MSWINDOWS}
     if FLimitNotifications <> nil then
       FLimitNotifications.Tick(not Visible or (WindowState = TWindowState.wsMinimized) or

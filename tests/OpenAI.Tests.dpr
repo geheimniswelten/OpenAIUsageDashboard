@@ -43,7 +43,7 @@ var
   TodayStart, YesterdayStart, FirstStart, WeekStart: string;
   TodayResults: string;
 begin
-  if not MathStr(APath, ['/organization/costs', '/organization/usage/completions']) then
+  if (APath <> '/organization/costs') and (APath <> '/organization/usage/completions') then
     Inc(DetailRequests);
   if (APath = '/organization/costs') and (CostResponse <> '') then
     Exit(CostResponse);

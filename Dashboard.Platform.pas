@@ -152,6 +152,7 @@ uses
   , Androidapi.Helpers,
   Androidapi.JNI.JavaTypes,
   Androidapi.JNI.Os,
+  Dashboard.AndroidWake,
   FMX.Helpers.Android
 {$ENDIF}
   ;
@@ -449,6 +450,9 @@ var
   NowTick: UInt64;
 {$ENDIF}
 begin
+{$IF Defined(ANDROID)}
+  TAndroidDisplayWake.Configure(AStartHour, AEndHour);
+{$ENDIF}
   SetKeepAwake(InKeepAwakeWindow(Now, AStartHour, AEndHour));
 {$IF Defined(MSWINDOWS)}
   { The collector continues to run, but never takes ownership of any monitor. }

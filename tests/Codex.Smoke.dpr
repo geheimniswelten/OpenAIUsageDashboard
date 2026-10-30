@@ -22,6 +22,7 @@ var
   Snapshot: TUsageSnapshot;
   Client: TDiagnosticClient;
   ErrorText, LauncherPath: string;
+  Limit: TRateLimitWindow;
 
 begin
   try
@@ -51,6 +52,15 @@ begin
         Writeln('limits_available=', Snapshot.CodexRateLimitsAvailable,
           ' lifetime_available=', Snapshot.CodexLifetimeAvailable,
           ' daily_usage_available=', Snapshot.CodexDailyUsageAvailable);
+        for Limit in Snapshot.RateLimits do
+        begin
+          Writeln('limit=', Limit.Id, ' used_percent=', Limit.UsedPercent:0:2,
+            ' uses_credits=', Limit.UsesCredits,
+            ' credits_available=', Limit.CreditsAvailable,
+            ' balance_available=', Limit.CreditBalanceAvailable);
+          if Limit.CreditBalanceAvailable then
+            Writeln('remaining_credits=', Limit.CreditBalance:0:2);
+        end;
       end
       else
       begin
