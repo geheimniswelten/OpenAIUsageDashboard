@@ -5,22 +5,12 @@
     </ProjectExtensions>
     <PropertyGroup>
         <DeviceId Condition="'$(Platform)'=='Android'"/>
-        <DeviceId Condition="'$(Platform)'=='Android64'">ACTIVE10PEEA001452</DeviceId>
-        <DeviceId Condition="'$(Platform)'=='iOSDevice64'"/>
-        <DeviceId Condition="'$(Platform)'=='iOSSimARM64'"/>
+        <DeviceId Condition="'$(Platform)'=='Android64'">bc0cd671</DeviceId>
     </PropertyGroup>
+    <ItemGroup Condition="'$(Platform)'=='WinARM64EC'"/>
     <ItemGroup Condition="'$(Platform)'=='OSX64'"/>
     <ItemGroup Condition="'$(Platform)'=='Win32'"/>
     <ItemGroup Condition="'$(Platform)'=='Android64'">
-        <DeployFile Include="assets\android\ic_launcher_monochrome.xml" Condition="'$(Config)'=='Debug'">
-            <RemoteDir>OpenAIUsageDashboard\res\drawable\</RemoteDir>
-            <RemoteName>ic_launcher_monochrome.xml</RemoteName>
-            <DeployClass>Android_AdaptiveIconMonochrome</DeployClass>
-            <Operation>1</Operation>
-            <LocalCommand/>
-            <RemoteCommand/>
-            <Overwrite>True</Overwrite>
-        </DeployFile>
         <DeployFile Include="AndroidManifest.template.xml" Condition="'$(Config)'=='Debug'">
             <RemoteDir>OpenAIUsageDashboard\assets\internal\</RemoteDir>
             <RemoteName>AndroidManifest.template.xml</RemoteName>
@@ -39,10 +29,10 @@
             <RemoteCommand/>
             <Overwrite>True</Overwrite>
         </DeployFile>
-        <DeployFile Include="assets\android\launcher-192.png" Condition="'$(Config)'=='Debug'">
-            <RemoteDir>OpenAIUsageDashboard\res\drawable-xxxhdpi\</RemoteDir>
-            <RemoteName>ic_launcher.png</RemoteName>
-            <DeployClass>Android_LauncherIcon192</DeployClass>
+        <DeployFile Include="assets\android\ic_launcher_monochrome.xml" Condition="'$(Config)'=='Debug'">
+            <RemoteDir>OpenAIUsageDashboard\res\drawable\</RemoteDir>
+            <RemoteName>ic_launcher_monochrome.xml</RemoteName>
+            <DeployClass>Android_AdaptiveIconMonochrome</DeployClass>
             <Operation>1</Operation>
             <LocalCommand/>
             <RemoteCommand/>
@@ -53,6 +43,15 @@
             <RemoteName>README.md</RemoteName>
             <DeployClass>ProjectFile</DeployClass>
             <Operation>0</Operation>
+            <LocalCommand/>
+            <RemoteCommand/>
+            <Overwrite>True</Overwrite>
+        </DeployFile>
+        <DeployFile Include="assets\android\launcher-192.png" Condition="'$(Config)'=='Debug'">
+            <RemoteDir>OpenAIUsageDashboard\res\drawable-xxxhdpi\</RemoteDir>
+            <RemoteName>ic_launcher.png</RemoteName>
+            <DeployClass>Android_LauncherIcon192</DeployClass>
+            <Operation>1</Operation>
             <LocalCommand/>
             <RemoteCommand/>
             <Overwrite>True</Overwrite>
@@ -102,19 +101,19 @@
             <RemoteCommand/>
             <Overwrite>True</Overwrite>
         </DeployFile>
-        <DeployFile Include="assets\android\ic_launcher_foreground.xml" Condition="'$(Config)'=='Debug'">
-            <RemoteDir>OpenAIUsageDashboard\res\drawable\</RemoteDir>
-            <RemoteName>ic_launcher_foreground.xml</RemoteName>
-            <DeployClass>Android_AdaptiveIconForeground</DeployClass>
+        <DeployFile Include="_bin\strings.xml" Condition="'$(Config)'=='Debug'">
+            <RemoteDir>OpenAIUsageDashboard\res\values\</RemoteDir>
+            <RemoteName>strings.xml</RemoteName>
+            <DeployClass>Android_Strings</DeployClass>
             <Operation>1</Operation>
             <LocalCommand/>
             <RemoteCommand/>
             <Overwrite>True</Overwrite>
         </DeployFile>
-        <DeployFile Include="_bin\strings.xml" Condition="'$(Config)'=='Debug'">
-            <RemoteDir>OpenAIUsageDashboard\res\values\</RemoteDir>
-            <RemoteName>strings.xml</RemoteName>
-            <DeployClass>Android_Strings</DeployClass>
+        <DeployFile Include="assets\android\ic_launcher_background.xml" Condition="'$(Config)'=='Debug'">
+            <RemoteDir>OpenAIUsageDashboard\res\drawable\</RemoteDir>
+            <RemoteName>ic_launcher_background.xml</RemoteName>
+            <DeployClass>Android_AdaptiveIconBackground</DeployClass>
             <Operation>1</Operation>
             <LocalCommand/>
             <RemoteCommand/>
@@ -133,15 +132,6 @@
             <RemoteDir>OpenAIUsageDashboard\library\lib\armeabi\</RemoteDir>
             <RemoteName>libOpenAIUsageDashboard.so</RemoteName>
             <DeployClass>AndroidLibnativeArmeabiFile</DeployClass>
-            <Operation>1</Operation>
-            <LocalCommand/>
-            <RemoteCommand/>
-            <Overwrite>True</Overwrite>
-        </DeployFile>
-        <DeployFile Include="assets\android\ic_launcher_background.xml" Condition="'$(Config)'=='Debug'">
-            <RemoteDir>OpenAIUsageDashboard\res\drawable\</RemoteDir>
-            <RemoteName>ic_launcher_background.xml</RemoteName>
-            <DeployClass>Android_AdaptiveIconBackground</DeployClass>
             <Operation>1</Operation>
             <LocalCommand/>
             <RemoteCommand/>
@@ -295,6 +285,15 @@
             <RemoteDir>OpenAIUsageDashboard\res\drawable-xxxhdpi\</RemoteDir>
             <RemoteName>ic_notification.png</RemoteName>
             <DeployClass>Android_NotificationIcon96</DeployClass>
+            <Operation>1</Operation>
+            <LocalCommand/>
+            <RemoteCommand/>
+            <Overwrite>True</Overwrite>
+        </DeployFile>
+        <DeployFile Include="assets\android\ic_launcher_foreground.xml" Condition="'$(Config)'=='Debug'">
+            <RemoteDir>OpenAIUsageDashboard\res\drawable\</RemoteDir>
+            <RemoteName>ic_launcher_foreground.xml</RemoteName>
+            <DeployClass>Android_AdaptiveIconForeground</DeployClass>
             <Operation>1</Operation>
             <LocalCommand/>
             <RemoteCommand/>
