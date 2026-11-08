@@ -6,6 +6,7 @@ uses
     System.SysUtils,
     Winapi.Windows,
     Dashboard.Instance in 'Dashboard.Instance.pas',
+    Dashboard.WindowsShutdown in 'Dashboard.WindowsShutdown.pas',
     Dashboard.LimitAlerts in 'Dashboard.LimitAlerts.pas',
     Dashboard.LimitNotifications in 'Dashboard.LimitNotifications.pas',
   {$ENDIF}
@@ -66,6 +67,7 @@ begin
       end;
     end;
     Application.Initialize;
+    InstallWindowsShutdownGuard;
     try
       { FMX creates registered forms lazily inside Application.Run. }
       TMainForm.AttachInstance(InstanceGuard);

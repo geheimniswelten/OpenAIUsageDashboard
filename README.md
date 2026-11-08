@@ -543,3 +543,19 @@ Fehlende vergleichbare Bewertungen erscheinen als `–`.
 Die Referenzwerte sind mit Standdatum eingebunden und werden nicht automatisch
 aktualisiert. Preisbasis, vollständige Liste, Quellen und Prüfergebnisse stehen
 in [docs/ModelReference.md](docs/ModelReference.md).
+
+## Windows-Herunterfahren und Abmelden
+
+Delphi 13s `TWinSystemAppearanceService` beantwortet `WM_QUERYENDSESSION`
+mit 0 und verhindert dadurch das Herunterfahren, auch bei reinem Tray-Betrieb.
+`Dashboard.WindowsShutdown` lässt die beim Start vorhandenen versteckten
+RTL-Hilfsfenster des eigenen GUI-Threads sofort zustimmen. Andere Nachrichten
+werden unverändert weitergereicht; die Originalprozeduren werden vor der
+Framework-Finalisierung wiederhergestellt, auch beim FMX-Abschluss über `Halt`.
+
+`tests/WindowsShutdown.Tests.dpr` reproduziert das Veto ohne Korrektur
+(`--without-guard`) und prüft mit Korrektur Herunterfahren, Abmelden, kombinierte
+Session-Flags, Abbruch, Nachrichtenweiterleitung sowie Entfernen und erneutes
+Installieren. `--halt` prüft zusätzlich die vorgezogene Exit-Bereinigung.
+Die Tests senden Nachrichten ausschließlich an eigene Testfenster; sie lösen
+kein echtes Herunterfahren aus. Win64-Build und Vorschau wurden ebenfalls geprüft.
