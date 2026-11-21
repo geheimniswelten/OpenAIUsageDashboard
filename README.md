@@ -540,8 +540,11 @@ pro Anfrage können je Modell und Reasoning-Stufe unterschiedlich ausfallen.
 Die Intelligence-Werte stammen von Artificial Analysis (v5.0, jeweils max).
 Fehlende vergleichbare Bewertungen erscheinen als `–`.
 
-Die Referenzwerte sind mit Standdatum eingebunden und werden nicht automatisch
-aktualisiert. Preisbasis, vollständige Liste, Quellen und Prüfergebnisse stehen
+Modellpreise werden täglich von der öffentlichen OpenAI-Preisseite aktualisiert
+und lokal zwischengespeichert. Neue Modelle erscheinen auch ohne Leistungsindex;
+Benchmarkwerte bleiben ein geprüfter Referenzstand. Ein Klick auf Top API-Modelle,
+Weitere API-Dienste oder Preisvergleich öffnet die vollständige scrollbare Liste.
+Preisbasis, Cache-Verhalten, Quellen und Prüfergebnisse stehen
 in [docs/ModelReference.md](docs/ModelReference.md).
 
 ## Windows-Herunterfahren und Abmelden

@@ -24,6 +24,8 @@ uses
   Dashboard.Model,
   Dashboard.Settings,
   Dashboard.Renderer,
+  Dashboard.Details,
+  Dashboard.DetailLayout,
   Dashboard.Platform,
   Dashboard.Transport,
   Dashboard.Codex,
@@ -52,6 +54,7 @@ type
     FPaintBox: TPaintBox;
     FTimer: TTimer;
     FSettingsPanel: TRectangle;
+    FDetails: TDashboardDetails;
     FSettingsScroll: TScrollBox;
     FSettingsFields: TArray<TSettingsFieldLayout>;
     FSettingsRows: TArray<TSettingsRowLayout>;
@@ -153,6 +156,7 @@ type
     {$IFEND}
     procedure RenderPreviewAndExit;
     procedure RenderSettingsPreviewAndExit;
+    procedure RenderDetailsPreviewAndExit;
   public
     {$IFDEF MSWINDOWS}
       class procedure AttachInstance(const AInstanceGuard: TDashboardInstance); static;
@@ -178,7 +182,8 @@ uses
     Dashboard.AndroidWake,
   {$ENDIF}
   FMX.BehaviorManager,
-  Dashboard.Secrets
+  Dashboard.Secrets,
+  Dashboard.Pricing
   {$IFDEF MSWINDOWS}
     , FMX.Platform.Win
   {$IFEND}
@@ -205,6 +210,7 @@ begin
   Height := 900;
   Fill.Color := BackgroundColor;
   FSnapshot := TUsageSnapshot.Create;
+  FSnapshot.PriceCatalog := GetModelPriceCatalog(False);
   FSettings := TDashboardSettings.Create;
   FSettings.Load;
   IsPreview := Pos('--render-', LowerCase(ParamStr(1))) = 1;
@@ -318,6 +324,9 @@ begin
   FPaintBox.OnMouseMove := DashboardMouseMove;
 
   BuildSettingsPanel;
+  FDetails := TDashboardDetails.Create(Self);
+  FDetails.Parent := Self;
+  FDetails.OnInteraction := SettingsInteraction;
 
   FTimer := TTimer.Create(Self);
   FTimer.Interval := 1000;
@@ -634,6 +643,11 @@ begin
   if FStarted then
     Exit;
   FStarted := True;
+  if SameText(ParamStr(1), '--render-details-preview') then
+  begin
+    RenderDetailsPreviewAndExit;
+    Exit;
+  end;
   if ((ParamCount > 0) and SameText(ParamStr(1), '--render-settings-preview')) or FindCmdLineSwitch('render-settings-preview', True) then
   begin
     RenderSettingsPreviewAndExit;
@@ -750,9 +764,76 @@ begin
   Application.Terminate;
 end;
 
+procedure TMainForm.RenderDetailsPreviewAndExit;
+var
+  Bitmap: TBitmap;
+  FileName: string;
+  W, H: Integer;
+  DetailKind: TDashboardDetailKind;
+  Rects: TDashboardDetailRects;
+  Target: TPointF;
+  Key: Word;
+  KeyChar: WideChar;
+begin
+  FileName := ExpandFileName(ParamStr(2));
+  W := EnsureRange(StrToIntDef(ParamStr(3), 1280), 320, 8192);
+  H := EnsureRange(StrToIntDef(ParamStr(4), 800), 480, 8192);
+  try
+    FSnapshot.MakeDemo;
+    if ParamCount >= 7 then FSnapshot.PriceCatalog := GetModelPriceCatalog(False, ParamStr(7));
+    FSettingsPanel.Visible := False;
+    ClientWidth := W;
+    ClientHeight := H;
+    FPaintBox.SetBounds(0, 0, W, H);
+    DetailKind := dkPrices;
+    if SameText(ParamStr(5), 'models') then DetailKind := dkModels;
+    if SameText(ParamStr(5), 'services') then DetailKind := dkServices;
+    Rects := DashboardDetailRects(FPaintBox.LocalRect);
+    case DetailKind of
+      dkModels: Target := Rects.Models.CenterPoint;
+      dkServices: Target := Rects.Services.CenterPoint;
+    else
+      Target := Rects.Prices.CenterPoint;
+    end;
+    DashboardMouseDown(Self, TMouseButton.mbLeft, [], Target.X, Target.Y);
+    if not FDetails.Visible or (FDetails.Kind <> DetailKind) then
+      raise Exception.Create('Detailbereich wurde beim Anklicken nicht geöffnet.');
+    FDetails.FitIn(TRectF.Create(0, 0, W, H));
+    if ParamCount >= 6 then FDetails.ScrollTo(StrToIntDef(ParamStr(6), 0));
+    Bitmap := TBitmap.Create(W, H);
+    try
+      if Bitmap.Canvas.BeginScene then
+      try
+        FRenderer.Render(Bitmap.Canvas, TRectF.Create(0, 0, W, H));
+        FDetails.PaintTo(Bitmap.Canvas, TRectF.Create(0, 0, W, H));
+      finally
+        Bitmap.Canvas.EndScene;
+      end;
+      Bitmap.SaveToFile(FileName);
+    finally
+      Bitmap.Free;
+    end;
+    Key := vkEscape;
+    KeyChar := #0;
+    FormKeyDown(Self, Key, KeyChar, []);
+    if FDetails.Visible or (Key <> 0) then
+      raise Exception.Create('Detailfenster wurde durch Escape nicht geschlossen.');
+  except
+    on E: Exception do
+    begin
+      TFile.WriteAllText(ChangeFileExt(FileName, '.error.txt'), E.ClassName + ': ' + E.Message, TEncoding.UTF8);
+      ExitCode := 1;
+    end;
+  end;
+  Application.Terminate;
+end;
+
 procedure TMainForm.FormResized(Sender: TObject);
 begin
   LayoutSettingsPanel(ClientRect);
+  if FDetails <> nil then
+    FDetails.FitIn(TRectF.Create(Max(0, FSettingsSafeInsets.Left), Max(0, FSettingsSafeInsets.Top),
+      ClientWidth - Max(0, FSettingsSafeInsets.Right), ClientHeight - Max(0, FSettingsSafeInsets.Bottom)));
   if FPaintBox <> nil then
     FPaintBox.Repaint;
 end;
@@ -934,13 +1015,21 @@ begin
   RegisterInteraction;
   if Key = vkF2 then
     ToggleSettings(Sender)
-  else if Key = vkEscape then
-    CancelSettings(Sender);
+  else if (Key = vkEscape) or ((Key = vkHardwareBack) and
+    (FDetails.Visible or FSettingsPanel.Visible)) then
+  begin
+    if (FDetails <> nil) and FDetails.Visible then
+      FDetails.Close
+    else
+      CancelSettings(Sender);
+    Key := 0;
+  end;
 end;
 
 procedure TMainForm.DashboardMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Single);
-{$IFDEF ANDROID}
 var
+  DetailKind: TDashboardDetailKind;
+{$IFDEF ANDROID}
   WasRevealed: Boolean;
 {$IFEND}
 begin
@@ -956,6 +1045,20 @@ begin
       Exit;
     end;
   {$IFEND}
+  if Button <> TMouseButton.mbLeft then Exit;
+  if FRenderer.SettingsHitRect(FPaintBox.LocalRect).Contains(TPointF.Create(X, Y)) then
+  begin
+    ToggleSettings(Sender);
+    Exit;
+  end;
+  if FSettingsPanel.Visible or FDetails.Visible then Exit;
+  DetailKind := DashboardDetailAt(FPaintBox.LocalRect, TPointF.Create(X, Y));
+  if DetailKind <> dkNone then
+  begin
+    FDetails.Open(DetailKind, FSnapshot);
+    FormResized(Self);
+    Exit;
+  end;
   {$IFDEF MSWINDOWS}
     if (Button = TMouseButton.mbLeft) and (ssDouble in Shift) and not FSettingsPanel.Visible
       and not FRenderer.SettingsHitRect(FPaintBox.LocalRect).Contains(TPointF.Create(X, Y)) then
@@ -964,8 +1067,6 @@ begin
       Exit;
     end;
   {$IFEND}
-  if FRenderer.SettingsHitRect(FPaintBox.LocalRect).Contains(TPointF.Create(X, Y)) then
-    ToggleSettings(Sender);
 end;
 
 procedure TMainForm.DashboardMouseMove(Sender: TObject; Shift: TShiftState;
@@ -973,7 +1074,8 @@ procedure TMainForm.DashboardMouseMove(Sender: TObject; Shift: TShiftState;
 begin
   RegisterInteraction;
   {$IFDEF MSWINDOWS}
-    if FRenderer.SettingsHitRect(FPaintBox.LocalRect).Contains(TPointF.Create(X, Y)) then
+    if FRenderer.SettingsHitRect(FPaintBox.LocalRect).Contains(TPointF.Create(X, Y)) or
+      (DashboardDetailAt(FPaintBox.LocalRect, TPointF.Create(X, Y)) <> dkNone) then
       FPaintBox.Cursor := crHandPoint
     else
       FPaintBox.Cursor := crDefault;
@@ -999,6 +1101,7 @@ end;
 procedure TMainForm.ToggleSettings(Sender: TObject);
 begin
   RegisterInteraction;
+  if FDetails <> nil then FDetails.Close;
   FSettingsPanel.Visible := not FSettingsPanel.Visible;
   if FSettingsPanel.Visible then
   begin
@@ -1386,6 +1489,7 @@ begin
               Success := Client.Fetch(NewSnapshot, ErrorText,
                 procedure(ACoreSnapshot: TUsageSnapshot)
                 begin
+                  ACoreSnapshot.PriceCatalog := GetModelPriceCatalog(False);
                   if FirstRefresh then
                     QueueRefreshProgress(ACoreSnapshot, 'Codex wird geladen …');
                   if not FClosing then
@@ -1422,6 +1526,10 @@ begin
       {$ELSE}
         Success := FetchRemoteSnapshot(Collector, ViewerToken, NewSnapshot, ErrorText);
       {$IFEND}
+      {$IFDEF MSWINDOWS}
+        if not FClosing then
+          NewSnapshot.PriceCatalog := GetModelPriceCatalog(True);
+      {$ENDIF}
       TThread.ForceQueue(TThread.CurrentThread,
         procedure
         begin
@@ -1540,6 +1648,14 @@ begin
     if (Length(FSnapshot.DailyCosts) = 0) and FSettings.UseDemoWhenUnavailable then
       FSnapshot.MakeDemo;
     FSnapshot.StatusText := 'Veraltet · ' + AError;
+  end;
+  if AComplete then
+    FSnapshot.PriceCatalog := ANewSnapshot.PriceCatalog;
+  FPublisher.Publish(FSnapshot);
+  if FDetails.Visible then
+  begin
+    FDetails.Refresh;
+    FormResized(Self);
   end;
   if FSnapshot.CodexError <> '' then
     FDataStatusLabel.Text := 'Codex: ' + FSnapshot.CodexError

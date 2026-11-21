@@ -1,10 +1,25 @@
 # Modellvergleich im Dashboard
 
-Referenzstand: **20.11.2026**. Die Werte sind in `Dashboard.ModelReference.pas`
-eingebunden und deshalb auch offline auf Windows und Android verfügbar.
-Dies ist ein geprüfter Datenstand, kein automatischer Abruf der Preis- oder
-Benchmark-Webseiten. Bei einer Aktualisierung müssen Werte und Standdatum
-gemeinsam geändert werden.
+Die Benchmarkwerte und die Preisreferenz für den Offline-Start sind mit Stand
+**20.11.2026** in `Dashboard.ModelReference.pas` eingebunden. Seit 21.11.2026
+aktualisiert der Windows-Sammler die Modellpreise automatisch über die öffentliche
+[OpenAI-Preisseite als Markdown](https://developers.openai.com/api/docs/pricing.md).
+Die Models-API liefert keine Preise; für diesen Abruf wird kein API-Key benötigt.
+
+`Dashboard.Pricing.pas` liest ausschließlich die ausdrücklich bezeichnete
+Standard-Preistabelle (kurzer Kontext, Eingabe/Ausgabe). Batch, Flex, Fast,
+Ultrafast und andere Einheiten werden nicht eingemischt. Ein erfolgreicher
+Abruf wird 24 Stunden lokal zwischengespeichert; nach einem Fehler wird frühestens
+nach einer Stunde erneut versucht. Bei Netzwerk- oder Formatfehlern bleibt der
+letzte gültige Preisstand erhalten, ohne Cache die integrierte Referenz.
+Der Cache liegt unter `%LOCALAPPDATA%\OpenAIUsageDashboard\openai-pricing.json`.
+
+Neue Modell-IDs aus der Preistabelle werden automatisch übernommen. Die jeweils
+neueste Version der Astra-, Sol-, Terra- und Luna-Familie erscheint zuerst, nach
+Version absteigend. Ein neuer Modellname übernimmt keinen Index eines Vorgängers;
+fehlende Benchmarkwerte werden mit `–` angezeigt. Android erhält den Katalog im
+Sammler-Snapshot. Ältere Sammler ohne Katalog bleiben mit der integrierten
+Referenz kompatibel. Der sichtbare Preisstand und der Benchmarkstand sind getrennt.
 
 ## Darstellung und Preisbasis
 
@@ -13,7 +28,10 @@ wie bei der aktuellen Bildschirmhöhe passen. Der Modellname hat die Größe der
 Anfragezahlen in den Top-Modellkarten; die kleinere Datenzeile zeigt drei Spalten:
 Eingabepreis, Ausgabepreis und Intelligence Index. Die Kopf- und Fußzeilen nennen Einheit, Quellen,
 Benchmark-Version, Reasoning-Stufe und Datenstand. `+N` nennt die weiteren
-vorhandenen Modelle, die nicht mehr hineinpassen.
+vorhandenen Modelle, die nicht mehr hineinpassen. Ein Klick oder Tippen auf den
+Preisvergleich öffnet die vollständige, scrollbare Liste mit demselben Preisstand.
+Die folgende Tabelle dokumentiert die integrierte Startreferenz; der automatische
+Katalog kann zusätzliche Modelle und neuere Preise enthalten.
 
 Die beiden Kostenwerte sind die Standardpreise für **jeweils 1 Million Tokens**,
 getrennt nach nicht gecachter Eingabe und Ausgabe, in USD. Es sind Tarifpreise,
@@ -75,7 +93,27 @@ Die ersten sechs Dienste stehen in einem Raster aus zwei Spalten und drei Zeilen
 Der Fußtext nennt ausgeblendete Dienste und gegebenenfalls deren Anzahl mit
 Nutzung. Der Snapshot und seine JSON-Übertragung behalten sämtliche Dienste.
 
+## Vollständige Listen
+
+Die gesamten Bereiche **Top API-Modelle**, **Weitere API-Dienste** und
+**Preisvergleich** reagieren auf Klick oder Tippen. Das Detailfenster zeigt
+sämtliche Einträge der jeweiligen Snapshot-Liste. Modelle bleiben nach Tokens,
+Dienste nach Nutzung sortiert; der Preisvergleich bevorzugt die aktuellen
+Modellfamilien. Die Listen lassen sich per Mausrad oder Touch scrollen.
+Schließen funktioniert über den Button, den abgedunkelten Hintergrund,
+Escape oder Android-Zurück. Fenstergröße und sichere Bildschirmränder werden
+bei Größenänderung berücksichtigt.
+
 ## Prüfung
+
+- `tests/Pricing.Tests.dpr`: Standard-/Batch-Trennung, zusätzliche Modelle ohne
+  Index, numerische Versionssortierung, ungültige und doppelte Preise,
+  JSON-Übertragung und beschädigter Cache.
+- `tests/Details.Tests.dpr`: Trefferbereiche bei verschiedenen Größen und
+  verschobenem Ursprung, Snapshot-Kopien, fehlende Preise/Indizes und
+  Kompatibilität mit älteren Sammler-Snapshots.
+- Live-Abruf der öffentlichen Preisliste mit 30 Modellen erfolgreich; vorhandene
+  Dashboard-, OpenAI- und Dienstesortierungs-Tests bestanden.
 
 - `tests/ServiceOrder.Tests.dpr`: leere Listen, aktive Dienste ohne Anfragezahl,
   gemeldete Nullwerte, fehlende Daten, stabile Gleichstände, Int64-Anfragezahlen,

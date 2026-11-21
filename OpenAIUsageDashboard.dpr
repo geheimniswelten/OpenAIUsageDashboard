@@ -37,7 +37,8 @@ begin
   try
     { Preview rendering runs independently without taking the live instance's
       lock or asking it to display its dashboard. }
-    IsPreview := SameText(ParamStr(1), '--render-preview') or
+    IsPreview := SameText(ParamStr(1), '--render-details-preview') or
+      SameText(ParamStr(1), '--render-preview') or
       SameText(ParamStr(1), '--render-settings-preview') or
       FindCmdLineSwitch('render-preview', True) or
       FindCmdLineSwitch('render-settings-preview', True);

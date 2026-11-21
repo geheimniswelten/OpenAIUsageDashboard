@@ -5,7 +5,8 @@ interface
 uses
   System.SysUtils,
   System.DateUtils,
-  System.JSON;
+  System.JSON,
+  Dashboard.ModelReference;
 
 type
   TDailyCost = record
@@ -91,6 +92,7 @@ type
     DailyCosts: TArray<TDailyCost>;
     DailyModelUsage: TArray<TDailyModelUsage>;
     Models: TArray<TModelUsage>;
+    PriceCatalog: TModelPriceCatalog;
     Services: TArray<TServiceUsage>;
     RateLimits: TArray<TRateLimitWindow>;
     Forecast: TArray<TForecastPoint>;
@@ -126,7 +128,8 @@ implementation
 
 uses
   System.Math,
-  System.Generics.Collections;
+  System.Generics.Collections,
+  Dashboard.Pricing;
 
 function JsonString(const AObject: TJSONObject; const AName, ADefault: string): string;
 var
@@ -280,6 +283,7 @@ begin
   DailyCosts := nil;
   DailyModelUsage := nil;
   Models := nil;
+  PriceCatalog := GetBuiltInPriceCatalog;
   Services := nil;
   RateLimits := nil;
   Forecast := nil;
@@ -320,6 +324,8 @@ begin
   DailyCosts := Copy(ASource.DailyCosts);
   DailyModelUsage := Copy(ASource.DailyModelUsage);
   Models := Copy(ASource.Models);
+  PriceCatalog := ASource.PriceCatalog;
+  PriceCatalog.Models := Copy(ASource.PriceCatalog.Models);
   Services := Copy(ASource.Services);
   RateLimits := Copy(ASource.RateLimits);
   Forecast := Copy(ASource.Forecast);
@@ -632,6 +638,7 @@ begin
     Root.AddPair('forecastDailyRate', TJSONNumber.Create(ForecastDailyRate));
     Root.AddPair('statusText', StatusText);
     Root.AddPair('sourceText', SourceText);
+    Root.AddPair('modelPriceCatalog', ModelPriceCatalogToJson(PriceCatalog));
     Root.AddPair('codexLifetimeTokens', TJSONNumber.Create(CodexLifetimeTokens));
     Root.AddPair('codexTodayTokens', TJSONNumber.Create(CodexTodayTokens));
     Root.AddPair('codexSevenDayTokens', TJSONNumber.Create(CodexSevenDayTokens));
@@ -756,6 +763,14 @@ begin
     ForecastDailyRate := JsonFloat(Root, 'forecastDailyRate');
     StatusText := JsonString(Root, 'statusText', '');
     SourceText := JsonString(Root, 'sourceText', '');
+    if Root.GetValue('modelPriceCatalog') is TJSONObject then
+    begin
+      try
+        PriceCatalog := ModelPriceCatalogFromJson(TJSONObject(Root.GetValue('modelPriceCatalog')));
+      except
+        on E: EConvertError do PriceCatalog := GetBuiltInPriceCatalog;
+      end;
+    end;
     CodexLifetimeTokens := JsonInt64(Root, 'codexLifetimeTokens');
     CodexTodayTokens := JsonInt64(Root, 'codexTodayTokens');
     CodexSevenDayTokens := JsonInt64(Root, 'codexSevenDayTokens');

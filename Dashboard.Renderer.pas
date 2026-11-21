@@ -41,7 +41,8 @@ implementation
 uses
   System.SysUtils,
   System.DateUtils,
-  System.Math;
+  System.Math,
+  Dashboard.DetailLayout;
 
 const
   CBackground = TAlphaColor($FF06140F);
@@ -521,7 +522,7 @@ var
 begin
   Box(ACanvas, ARect, CPanel, CBorder);
   Text(ACanvas, TRectF.Create(ARect.Left + 15 * FScale, ARect.Top + 7 * FScale, ARect.Right - 12 * FScale, ARect.Top + 36 * FScale),
-    'Top API-Modelle · letzte 7 Tage', 15, CText, True);
+    'Top API-Modelle · letzte 7 Tage  ›', 15, CText, True);
   Count := Min(5, Length(FSnapshot.Models));
   Gap := 7 * FScale;
   CellW := (ARect.Width - 30 * FScale - 2 * Gap) / 3;
@@ -585,7 +586,7 @@ var
   Services: TArray<TServiceUsage>;
 begin
   Box(ACanvas, ARect, CPanel, CBorder);
-  Text(ACanvas, TRectF.Create(ARect.Left + 15 * FScale, ARect.Top + 7 * FScale, ARect.Right - 12 * FScale, ARect.Top + 38 * FScale), 'Weitere API-Dienste', 15, CText, True);
+  Text(ACanvas, TRectF.Create(ARect.Left + 15 * FScale, ARect.Top + 7 * FScale, ARect.Right - 12 * FScale, ARect.Top + 38 * FScale), 'Weitere API-Dienste  ›', 15, CText, True);
   Services := FSnapshot.GetServicesByUsage;
   Count := Min(6, Length(Services));
   if Count = 0 then
@@ -654,7 +655,7 @@ var
 begin
   Box(ACanvas, ARect, CPanel, CBorder);
   Text(ACanvas, TRectF.Create(ARect.Left + 12 * FScale, ARect.Top + 7 * FScale,
-    ARect.Right - 10 * FScale, ARect.Top + 35 * FScale), 'Modellvergleich', 15, CText, True);
+    ARect.Right - 10 * FScale, ARect.Top + 35 * FScale), 'Preisvergleich  ›', 15, CText, True);
   NameRect := TRectF.Create(ARect.Left + 12 * FScale, ARect.Top + 34 * FScale,
     ARect.Right - 10 * FScale, ARect.Top + 55 * FScale);
   InputRect := TRectF.Create(NameRect.Left, NameRect.Top,
@@ -689,10 +690,16 @@ begin
     OutputRect.Bottom := InputRect.Bottom;
     IndexRect.Top := InputRect.Top;
     IndexRect.Bottom := InputRect.Bottom;
-    Text(ACanvas, InputRect, FormatMoney(FModelReferences[I].InputPerMillion, 'USD'),
-      13.5, CGreen);
-    Text(ACanvas, OutputRect, FormatMoney(FModelReferences[I].OutputPerMillion, 'USD'),
-      13.5, CGreen);
+    if FModelReferences[I].PriceAvailable then
+    begin
+      Text(ACanvas, InputRect, FormatMoney(FModelReferences[I].InputPerMillion, 'USD'), 13.5, CGreen);
+      Text(ACanvas, OutputRect, FormatMoney(FModelReferences[I].OutputPerMillion, 'USD'), 13.5, CGreen);
+    end
+    else
+    begin
+      Text(ACanvas, InputRect, '–', 13.5, CMuted);
+      Text(ACanvas, OutputRect, '–', 13.5, CMuted);
+    end;
     if FModelReferences[I].Intelligence >= 0 then
       Score := IntToStr(FModelReferences[I].Intelligence)
     else
@@ -711,7 +718,7 @@ begin
   Text(ACanvas, TRectF.Create(ARect.Left + 12 * FScale, FooterTop + 54 * FScale,
     ARect.Right - 10 * FScale, FooterTop + 72 * FScale), 'OpenAI / artificialanalysis.ai', 8, CMuted);
   Text(ACanvas, TRectF.Create(ARect.Left + 12 * FScale, FooterTop + 72 * FScale,
-    ARect.Right - 10 * FScale, FooterTop + 90 * FScale), 'Stand ' + ModelReferenceDate, 8, CMuted);
+    ARect.Right - 10 * FScale, FooterTop + 90 * FScale), 'Preise ' + FormatDateTime('dd.mm.yyyy', FSnapshot.PriceCatalog.UpdatedAt), 8, CMuted);
 end;
 
 procedure TDashboardRenderer.DrawLimits(const ACanvas: TCanvas; const ARect: TRectF);
@@ -876,14 +883,16 @@ end;
 procedure TDashboardRenderer.Render(const ACanvas: TCanvas; const ARect: TRectF);
 var
   Margin, Gap, HeaderH, KpiH, ContentTop, ContentBottom, ColLeftW,
-    SideW, Left, Top, KpiW, SideTop, ModelH, FooterH, LimitsTop, ServicesW: Single;
+    Top, KpiW, FooterH, LimitsTop: Single;
   I: Integer;
   KpiRects: array[0..3] of TRectF;
+  DetailRects: TDashboardDetailRects;
   LimitPct, Detail: string;
 begin
   if (ACanvas = nil) or (ARect.Width <= 0) or (ARect.Height <= 0) then
     Exit;
   FScale := Clamp(Min(ARect.Width / 1920, ARect.Height / 1080), 0.62, 1.35);
+  FModelReferences := FSnapshot.PriceCatalog.Models;
   ACanvas.Fill.Kind := TBrushKind.Solid;
   ACanvas.Fill.Color := CBackground;
   ACanvas.FillRect(ARect, 1);
@@ -909,9 +918,6 @@ begin
   ContentTop := Top + KpiH + Gap;
   ContentBottom := ARect.Bottom - Margin - FooterH;
   ColLeftW := (ARect.Width - 2 * Margin - Gap) * 0.61;
-  SideW := ARect.Width - 2 * Margin - Gap - ColLeftW;
-  SideTop := ContentTop;
-  ModelH := (ContentBottom - ContentTop) * 0.36;
   LimitsTop := ContentTop + (ContentBottom - ContentTop) * 0.61;
   for I := 0 to Min(Length(FSnapshot.RateLimits), 4 - Ord(FSnapshot.SpendingLimit > 0)) - 1 do
     if FSnapshot.RateLimits[I].Available and
@@ -926,12 +932,10 @@ begin
     ARect.Left + Margin + ColLeftW, ContentTop + (ContentBottom - ContentTop) * 0.78));
   DrawCodex(ACanvas, TRectF.Create(ARect.Left + Margin, ContentTop + (ContentBottom - ContentTop) * 0.78 + Gap,
     ARect.Left + Margin + ColLeftW, ContentBottom));
-  Left := ARect.Left + Margin + ColLeftW + Gap;
-  DrawModels(ACanvas, TRectF.Create(Left, SideTop, Left + SideW, SideTop + ModelH));
-  ServicesW := (SideW - Gap) * 2 / 3;
-  DrawServices(ACanvas, TRectF.Create(Left, SideTop + ModelH + Gap, Left + ServicesW, ContentBottom));
-  DrawModelReference(ACanvas, TRectF.Create(Left + ServicesW + Gap,
-    SideTop + ModelH + Gap, Left + SideW, ContentBottom));
+  DetailRects := DashboardDetailRects(ARect);
+  DrawModels(ACanvas, DetailRects.Models);
+  DrawServices(ACanvas, DetailRects.Services);
+  DrawModelReference(ACanvas, DetailRects.Prices);
   if FSnapshot.SpendingLimit > 0 then
     LimitPct := FormatFloat('0', 100 * FSnapshot.PeriodCost / FSnapshot.SpendingLimit) + '%'
   else
