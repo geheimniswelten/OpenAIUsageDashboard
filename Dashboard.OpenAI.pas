@@ -33,6 +33,7 @@ type
       const ABillingDay: Integer);
     destructor Destroy; override;
     procedure Cancel;
+    function ReadModelListJson: string;
     function Fetch(const ASnapshot: TUsageSnapshot; out AError: string; const AOnCoreReady: TProc<TUsageSnapshot> = nil): Boolean;
   end;
 
@@ -208,6 +209,22 @@ begin
     finally
       TMonitor.Exit(Self);
     end;
+  end;
+end;
+
+function TOpenAIUsageClient.ReadModelListJson: string;
+var
+  PreviousConnectTimeout, PreviousResponseTimeout: Integer;
+begin
+  PreviousConnectTimeout := FHttpClient.ConnectionTimeout;
+  PreviousResponseTimeout := FHttpClient.ResponseTimeout;
+  try
+    FHttpClient.ConnectionTimeout := 1500;
+    FHttpClient.ResponseTimeout := 2500;
+    Result := RequestJson('/models', '');
+  finally
+    FHttpClient.ConnectionTimeout := PreviousConnectTimeout;
+    FHttpClient.ResponseTimeout := PreviousResponseTimeout;
   end;
 end;
 

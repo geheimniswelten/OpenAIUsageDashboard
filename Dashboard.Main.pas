@@ -54,6 +54,10 @@ type
     FPaintBox: TPaintBox;
     FTimer: TTimer;
     FSettingsPanel: TRectangle;
+    FSettingsHeader: TLayout;
+    FSettingsHeading: TLabel;
+    FSettingsClose, FSettingsMinimize, FSettingsExit: TButton;
+    FSettingsHeaderBusy: Boolean;
     FDetails: TDashboardDetails;
     FSettingsScroll: TScrollBox;
     FSettingsFields: TArray<TSettingsFieldLayout>;
@@ -111,6 +115,7 @@ type
     function AddSettingsField(const ACaption: string; const AEditor: TControl): TLayout;
     procedure AddSettingsRow(const AControls: array of TControl; const AMinimumWidth: Single = 0);
     procedure LayoutSettingsControls;
+    procedure LayoutSettingsHeader(Sender: TObject);
     procedure LayoutSettingsPanel(const AViewport: TRectF);
     procedure SettingsSafeAreaChanged(Sender: TObject; const AInsets: TRectF);
     procedure SettingsKeyboardChanged(Sender: TObject; KeyboardVisible: Boolean; const Bounds: TRect);
@@ -132,6 +137,7 @@ type
     procedure CancelSettings(Sender: TObject);
     procedure ShowDemo(Sender: TObject);
     procedure ExitApplication(Sender: TObject);
+    procedure MinimizeApplication(Sender: TObject);
     {$IFDEF MSWINDOWS}
       procedure DeleteKey(Sender: TObject);
       procedure TrayAction(Sender: TObject; AAction: TTrayAction);
@@ -180,10 +186,12 @@ uses
   FMX.TextLayout,
   {$IFDEF ANDROID}
     Dashboard.AndroidWake,
+    Androidapi.Helpers,
   {$ENDIF}
   FMX.BehaviorManager,
   Dashboard.Secrets,
-  Dashboard.Pricing
+  Dashboard.Pricing,
+  Dashboard.ModelMetadata
   {$IFDEF MSWINDOWS}
     , FMX.Platform.Win
   {$IFEND}
@@ -211,6 +219,7 @@ begin
   Fill.Color := BackgroundColor;
   FSnapshot := TUsageSnapshot.Create;
   FSnapshot.PriceCatalog := GetModelPriceCatalog(False);
+  EnrichModelCatalog(FSnapshot.PriceCatalog, False);
   FSettings := TDashboardSettings.Create;
   FSettings.Load;
   IsPreview := Pos('--render-', LowerCase(ParamStr(1))) = 1;
@@ -462,8 +471,18 @@ procedure TMainForm.BuildSettingsPanel;
     Result.OnClick := AClick;
   end;
 
-var
-  Heading: TLabel;
+  function HeaderButton(const AText, AHint: string; const AClick: TNotifyEvent): TButton;
+  begin
+    Result := TButton.Create(FSettingsHeader);
+    Result.Parent := FSettingsHeader;
+    Result.Text := AText;
+    Result.Hint := AHint;
+    Result.ShowHint := True;
+    Result.StyledSettings := Result.StyledSettings - [TStyledSetting.Size];
+    Result.TextSettings.Font.Size := 14;
+    Result.OnClick := AClick;
+  end;
+
 begin
   FSettingsPanel := TRectangle.Create(Self);
   FSettingsPanel.Parent := Self;
@@ -478,6 +497,24 @@ begin
   FSettingsPanel.Visible := False;
   FSettingsPanel.ClipChildren := True;
 
+  FSettingsHeader := TLayout.Create(FSettingsPanel);
+  FSettingsHeader.Parent := FSettingsPanel;
+  FSettingsHeader.Align := TAlignLayout.Top;
+  FSettingsHeader.Margins.Rect := TRectF.Create(3, 3, 3, 0);
+  FSettingsHeader.Height := 64;
+  FSettingsHeading := TLabel.Create(FSettingsHeader);
+  FSettingsHeading.Parent := FSettingsHeader;
+  FSettingsHeading.Text := 'Einstellungen';
+  FSettingsHeading.StyledSettings := [];
+  FSettingsHeading.TextSettings.Font.Size := 24;
+  FSettingsHeading.TextSettings.Font.Style := [TFontStyle.fsBold];
+  FSettingsHeading.TextSettings.FontColor := TextColor;
+  FSettingsHeading.WordWrap := False;
+  FSettingsClose := HeaderButton('Close', 'Einstellungen schließen', CancelSettings);
+  FSettingsMinimize := HeaderButton('_', 'Anwendung minimieren', MinimizeApplication);
+  FSettingsExit := HeaderButton('X', 'Anwendung beenden', ExitApplication);
+  FSettingsHeader.OnResize := LayoutSettingsHeader;
+
   FSettingsScroll := TScrollBox.Create(FSettingsPanel);
   FSettingsScroll.Parent := FSettingsPanel;
   FSettingsScroll.Align := TAlignLayout.Client;
@@ -485,15 +522,6 @@ begin
 
   FSettingsScroll.ClipChildren := True;
   FSettingsScroll.Bounces := TBehaviorBoolean.False;
-  Heading := AddSettingsLabel('Einstellungen', 28, 12, 604);
-  with Heading do
-  begin
-    TextSettings.Font.Size := 24;
-    TextSettings.Font.Style := [TFontStyle.fsBold];
-    TextSettings.FontColor := TextColor;
-    Height := 38;
-  end;
-  AddSettingsRow([Heading]);
 
   {$IFDEF MSWINDOWS}
     FKeyEdit := NewEdit(True);
@@ -781,6 +809,10 @@ begin
   try
     FSnapshot.MakeDemo;
     if ParamCount >= 7 then FSnapshot.PriceCatalog := GetModelPriceCatalog(False, ParamStr(7));
+    if ParamCount >= 8 then
+      EnrichModelCatalog(FSnapshot.PriceCatalog, False, nil, ParamStr(8))
+    else
+      EnrichModelCatalog(FSnapshot.PriceCatalog, False);
     FSettingsPanel.Visible := False;
     ClientWidth := W;
     ClientHeight := H;
@@ -836,6 +868,41 @@ begin
       ClientWidth - Max(0, FSettingsSafeInsets.Right), ClientHeight - Max(0, FSettingsSafeInsets.Bottom)));
   if FPaintBox <> nil then
     FPaintBox.Repaint;
+end;
+
+procedure TMainForm.LayoutSettingsHeader(Sender: TObject);
+var
+  W, X, Y, HeaderHeight: Single;
+begin
+  if (FSettingsHeader = nil) or (FSettingsExit = nil) or FSettingsHeaderBusy then Exit;
+  FSettingsHeaderBusy := True;
+  try
+    W := FSettingsHeader.Width;
+    Y := 13;
+    HeaderHeight := 64;
+    if W < 340 then
+    begin
+      HeaderHeight := 94;
+      Y := 44;
+      FSettingsHeading.SetBounds(16, 5, Max(1, W - 32), 34);
+    end
+    else
+      FSettingsHeading.SetBounds(16, 13, Max(1, W - 190), 38);
+    FSettingsHeading.TextSettings.Font.Size := 24;
+    if W < 440 then FSettingsHeading.TextSettings.Font.Size := 20;
+    if not SameValue(FSettingsHeader.Height, HeaderHeight) then
+      FSettingsHeader.Height := HeaderHeight;
+    X := Max(4, W - 166);
+    FSettingsClose.SetBounds(X, Y, 62, 38);
+    FSettingsMinimize.SetBounds(X + 68, Y, 40, 38);
+    FSettingsExit.SetBounds(X + 114, Y, 40, 38);
+    FSettingsHeading.ApplyStyleLookup;
+    FSettingsClose.ApplyStyleLookup;
+    FSettingsMinimize.ApplyStyleLookup;
+    FSettingsExit.ApplyStyleLookup;
+  finally
+    FSettingsHeaderBusy := False;
+  end;
 end;
 
 procedure TMainForm.LayoutSettingsControls;
@@ -961,6 +1028,7 @@ begin
     Available.Left + (Available.Width - PanelWidth) / 2,
     Available.Top + (Available.Height - PanelHeight) / 2,
     PanelWidth, PanelHeight);
+  LayoutSettingsHeader(Self);
   LayoutSettingsControls;
   RevealSettingsEditor;
 end;
@@ -1052,6 +1120,11 @@ begin
     Exit;
   end;
   if FSettingsPanel.Visible or FDetails.Visible then Exit;
+  if FRenderer.RefreshHitRect(FPaintBox.LocalRect).Contains(TPointF.Create(X, Y)) then
+  begin
+    BeginRefresh;
+    Exit;
+  end;
   DetailKind := DashboardDetailAt(FPaintBox.LocalRect, TPointF.Create(X, Y));
   if DetailKind <> dkNone then
   begin
@@ -1075,6 +1148,7 @@ begin
   RegisterInteraction;
   {$IFDEF MSWINDOWS}
     if FRenderer.SettingsHitRect(FPaintBox.LocalRect).Contains(TPointF.Create(X, Y)) or
+      FRenderer.RefreshHitRect(FPaintBox.LocalRect).Contains(TPointF.Create(X, Y)) or
       (DashboardDetailAt(FPaintBox.LocalRect, TPointF.Create(X, Y)) <> dkNone) then
       FPaintBox.Cursor := crHandPoint
     else
@@ -1219,6 +1293,16 @@ begin
   FSettingsPanel.Visible := False;
   FPaintBox.Repaint;
   UpdateExternalDisplay(True);
+end;
+
+procedure TMainForm.MinimizeApplication(Sender: TObject);
+begin
+  RegisterInteraction;
+  {$IFDEF ANDROID}
+    TAndroidHelper.Activity.moveTaskToBack(True);
+  {$ELSE}
+    WindowState := TWindowState.wsMinimized;
+  {$ENDIF}
 end;
 
 procedure TMainForm.ExitApplication(Sender: TObject);
@@ -1486,17 +1570,29 @@ begin
           end;
           try
             if CanFetch then
+            begin
               Success := Client.Fetch(NewSnapshot, ErrorText,
                 procedure(ACoreSnapshot: TUsageSnapshot)
                 begin
                   ACoreSnapshot.PriceCatalog := GetModelPriceCatalog(False);
+                  EnrichModelCatalog(ACoreSnapshot.PriceCatalog, False);
                   if FirstRefresh then
                     QueueRefreshProgress(ACoreSnapshot, 'Codex wird geladen …');
                   if not FClosing then
                     FCodexClient.Enrich(ACoreSnapshot, CodexError);
                   if FirstRefresh then
                     QueueRefreshProgress(ACoreSnapshot, 'Weitere Details werden geladen …');
-                end)
+                end);
+              if not FClosing then
+              begin
+                NewSnapshot.PriceCatalog := GetModelPriceCatalog(True);
+                EnrichModelCatalog(NewSnapshot.PriceCatalog, True,
+                  function: string
+                  begin
+                    Result := Client.ReadModelListJson;
+                  end);
+              end;
+            end
             else
             begin
               Success := False;
@@ -1527,8 +1623,11 @@ begin
         Success := FetchRemoteSnapshot(Collector, ViewerToken, NewSnapshot, ErrorText);
       {$IFEND}
       {$IFDEF MSWINDOWS}
-        if not FClosing then
+        if not FClosing and (AdminKey = '') then
+        begin
           NewSnapshot.PriceCatalog := GetModelPriceCatalog(True);
+          EnrichModelCatalog(NewSnapshot.PriceCatalog, True);
+        end;
       {$ENDIF}
       TThread.ForceQueue(TThread.CurrentThread,
         procedure

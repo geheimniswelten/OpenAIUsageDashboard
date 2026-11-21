@@ -1,0 +1,290 @@
+[
+  {
+    "modelId": "gpt-6.2-astra",
+    "publishedAt": "2026-11-17",
+    "knowledgeCutoff": "2026-05-18",
+    "contextTokens": 1050000,
+    "maxOutputTokens": 128000,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "status": null,
+    "shutdownAt": null,
+    "shutdownKnown": false,
+    "dateVerified": "2026-11-21",
+    "sources": {
+      "publishedAt": "https://developers.openai.com/api/docs/changelog",
+      "knowledgeCutoff": "https://developers.openai.com/api/docs/models/gpt-6.2-astra",
+      "contextTokens": "https://developers.openai.com/api/docs/models/gpt-6.2-astra",
+      "maxOutputTokens": "https://developers.openai.com/api/docs/models/gpt-6.2-astra",
+      "inputModalities": "https://developers.openai.com/api/docs/models/gpt-6.2-astra",
+      "outputModalities": "https://developers.openai.com/api/docs/models/gpt-6.2-astra"
+    }
+  },
+  {
+    "modelId": "gpt-6.2-sol",
+    "publishedAt": "2026-11-17",
+    "knowledgeCutoff": "2026-06-01",
+    "contextTokens": 1050000,
+    "maxOutputTokens": 128000,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "status": null,
+    "shutdownAt": null,
+    "shutdownKnown": false,
+    "dateVerified": "2026-11-21",
+    "sources": {
+      "publishedAt": "https://developers.openai.com/api/docs/changelog",
+      "knowledgeCutoff": "https://developers.openai.com/api/docs/models/gpt-6.2-sol",
+      "contextTokens": "https://developers.openai.com/api/docs/models/gpt-6.2-sol",
+      "maxOutputTokens": "https://developers.openai.com/api/docs/models/gpt-6.2-sol",
+      "inputModalities": "https://developers.openai.com/api/docs/models/gpt-6.2-sol",
+      "outputModalities": "https://developers.openai.com/api/docs/models/gpt-6.2-sol"
+    }
+  },
+  {
+    "modelId": "gpt-6-astra",
+    "publishedAt": "2026-09-03",
+    "knowledgeCutoff": "2026-04-30",
+    "contextTokens": 1050000,
+    "maxOutputTokens": 128000,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "status": null,
+    "shutdownAt": null,
+    "shutdownKnown": false,
+    "dateVerified": "2026-11-21",
+    "sources": {
+      "publishedAt": "https://developers.openai.com/api/docs/changelog",
+      "knowledgeCutoff": "https://developers.openai.com/api/docs/models/gpt-6-astra",
+      "contextTokens": "https://developers.openai.com/api/docs/models/gpt-6-astra",
+      "maxOutputTokens": "https://developers.openai.com/api/docs/models/gpt-6-astra",
+      "inputModalities": "https://developers.openai.com/api/docs/models/gpt-6-astra",
+      "outputModalities": "https://developers.openai.com/api/docs/models/gpt-6-astra"
+    }
+  },
+  {
+    "modelId": "gpt-6.1-sol",
+    "publishedAt": "2026-09-29",
+    "knowledgeCutoff": "2026-04-30",
+    "contextTokens": 1050000,
+    "maxOutputTokens": 128000,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "status": null,
+    "shutdownAt": null,
+    "shutdownKnown": false,
+    "dateVerified": "2026-11-21",
+    "sources": {
+      "publishedAt": "https://developers.openai.com/api/docs/changelog",
+      "knowledgeCutoff": "https://developers.openai.com/api/docs/models/gpt-6.1-sol",
+      "contextTokens": "https://developers.openai.com/api/docs/models/gpt-6.1-sol",
+      "maxOutputTokens": "https://developers.openai.com/api/docs/models/gpt-6.1-sol",
+      "inputModalities": "https://developers.openai.com/api/docs/models/gpt-6.1-sol",
+      "outputModalities": "https://developers.openai.com/api/docs/models/gpt-6.1-sol"
+    }
+  },
+  {
+    "modelId": "gpt-6.1-terra",
+    "publishedAt": "2026-10-26",
+    "knowledgeCutoff": "2026-06-01",
+    "contextTokens": 1050000,
+    "maxOutputTokens": 128000,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "status": null,
+    "shutdownAt": null,
+    "shutdownKnown": false,
+    "dateVerified": "2026-11-21",
+    "sources": {
+      "publishedAt": "https://developers.openai.com/api/docs/changelog",
+      "knowledgeCutoff": "https://developers.openai.com/api/docs/models/gpt-6.1-terra",
+      "contextTokens": "https://developers.openai.com/api/docs/models/gpt-6.1-terra",
+      "maxOutputTokens": "https://developers.openai.com/api/docs/models/gpt-6.1-terra",
+      "inputModalities": "https://developers.openai.com/api/docs/models/gpt-6.1-terra",
+      "outputModalities": "https://developers.openai.com/api/docs/models/gpt-6.1-terra"
+    }
+  },
+  {
+    "modelId": "gpt-6-luna",
+    "publishedAt": "2026-09-22",
+    "knowledgeCutoff": "2026-05-18",
+    "contextTokens": 1050000,
+    "maxOutputTokens": 128000,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "status": null,
+    "shutdownAt": null,
+    "shutdownKnown": false,
+    "dateVerified": "2026-11-21",
+    "sources": {
+      "publishedAt": "https://developers.openai.com/api/docs/changelog",
+      "knowledgeCutoff": "https://developers.openai.com/api/docs/models/gpt-6-luna",
+      "contextTokens": "https://developers.openai.com/api/docs/models/gpt-6-luna",
+      "maxOutputTokens": "https://developers.openai.com/api/docs/models/gpt-6-luna",
+      "inputModalities": "https://developers.openai.com/api/docs/models/gpt-6-luna",
+      "outputModalities": "https://developers.openai.com/api/docs/models/gpt-6-luna"
+    }
+  },
+  {
+    "modelId": "gpt-5.6-sol",
+    "publishedAt": "2026-07-09",
+    "knowledgeCutoff": "2026-02-16",
+    "contextTokens": 1050000,
+    "maxOutputTokens": 128000,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "status": null,
+    "shutdownAt": null,
+    "shutdownKnown": false,
+    "dateVerified": "2026-11-21",
+    "sources": {
+      "publishedAt": "https://developers.openai.com/api/docs/changelog",
+      "knowledgeCutoff": "https://developers.openai.com/api/docs/models/gpt-5.6-sol",
+      "contextTokens": "https://developers.openai.com/api/docs/models/gpt-5.6-sol",
+      "maxOutputTokens": "https://developers.openai.com/api/docs/models/gpt-5.6-sol",
+      "inputModalities": "https://developers.openai.com/api/docs/models/gpt-5.6-sol",
+      "outputModalities": "https://developers.openai.com/api/docs/models/gpt-5.6-sol"
+    }
+  },
+  {
+    "modelId": "gpt-5.6-terra",
+    "publishedAt": "2026-07-09",
+    "knowledgeCutoff": "2026-02-16",
+    "contextTokens": 1050000,
+    "maxOutputTokens": 128000,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "status": null,
+    "shutdownAt": null,
+    "shutdownKnown": false,
+    "dateVerified": "2026-11-21",
+    "sources": {
+      "publishedAt": "https://developers.openai.com/api/docs/changelog",
+      "knowledgeCutoff": "https://developers.openai.com/api/docs/models/gpt-5.6-terra",
+      "contextTokens": "https://developers.openai.com/api/docs/models/gpt-5.6-terra",
+      "maxOutputTokens": "https://developers.openai.com/api/docs/models/gpt-5.6-terra",
+      "inputModalities": "https://developers.openai.com/api/docs/models/gpt-5.6-terra",
+      "outputModalities": "https://developers.openai.com/api/docs/models/gpt-5.6-terra"
+    }
+  },
+  {
+    "modelId": "gpt-5.4-mini",
+    "publishedAt": "2026-03-17",
+    "knowledgeCutoff": "2025-08-31",
+    "contextTokens": 400000,
+    "maxOutputTokens": 128000,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "status": null,
+    "shutdownAt": null,
+    "shutdownKnown": false,
+    "dateVerified": "2026-11-21",
+    "sources": {
+      "publishedAt": "https://developers.openai.com/api/docs/changelog",
+      "knowledgeCutoff": "https://developers.openai.com/api/docs/models/gpt-5.4-mini",
+      "contextTokens": "https://developers.openai.com/api/docs/models/gpt-5.4-mini",
+      "maxOutputTokens": "https://developers.openai.com/api/docs/models/gpt-5.4-mini",
+      "inputModalities": "https://developers.openai.com/api/docs/models/gpt-5.4-mini",
+      "outputModalities": "https://developers.openai.com/api/docs/models/gpt-5.4-mini"
+    }
+  },
+  {
+    "modelId": "gpt-5.3-codex",
+    "publishedAt": "2026-02-24",
+    "knowledgeCutoff": "2025-08-31",
+    "contextTokens": 400000,
+    "maxOutputTokens": 128000,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "status": "Deprecated",
+    "shutdownAt": "2027-04-01",
+    "shutdownKnown": true,
+    "dateVerified": "2026-11-21",
+    "sources": {
+      "publishedAt": "https://developers.openai.com/api/docs/changelog",
+      "knowledgeCutoff": "https://developers.openai.com/api/docs/models/gpt-5.3-codex",
+      "contextTokens": "https://developers.openai.com/api/docs/models/gpt-5.3-codex",
+      "maxOutputTokens": "https://developers.openai.com/api/docs/models/gpt-5.3-codex",
+      "inputModalities": "https://developers.openai.com/api/docs/models/gpt-5.3-codex",
+      "outputModalities": "https://developers.openai.com/api/docs/models/gpt-5.3-codex",
+      "status": "https://developers.openai.com/api/docs/deprecations",
+      "shutdownAt": "https://developers.openai.com/api/docs/deprecations"
+    }
+  },
+  {
+    "modelId": "gpt-5.4",
+    "publishedAt": "2026-03-05",
+    "knowledgeCutoff": "2025-08-31",
+    "contextTokens": 1050000,
+    "maxOutputTokens": 128000,
+    "inputModalities": [
+      "text",
+      "image"
+    ],
+    "outputModalities": [
+      "text"
+    ],
+    "status": null,
+    "shutdownAt": null,
+    "shutdownKnown": false,
+    "dateVerified": "2026-11-21",
+    "sources": {
+      "publishedAt": "https://developers.openai.com/api/docs/changelog",
+      "knowledgeCutoff": "https://developers.openai.com/api/docs/models/gpt-5.4",
+      "contextTokens": "https://developers.openai.com/api/docs/models/gpt-5.4",
+      "maxOutputTokens": "https://developers.openai.com/api/docs/models/gpt-5.4",
+      "inputModalities": "https://developers.openai.com/api/docs/models/gpt-5.4",
+      "outputModalities": "https://developers.openai.com/api/docs/models/gpt-5.4"
+    }
+  }
+]

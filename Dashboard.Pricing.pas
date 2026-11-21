@@ -9,6 +9,8 @@ function GetModelPriceCatalog(const ARefresh: Boolean = False;
 function ModelPriceCatalogToJson(const ACatalog: TModelPriceCatalog): TJSONObject;
 function ModelPriceCatalogFromJson(const AObject: TJSONObject): TModelPriceCatalog;
 function ParseStandardPricing(const Markdown: string): TModelPriceCatalog;
+function MetadataToJson(const M: TModelMetadata): TJSONObject;
+function MetadataFromJson(const O: TJSONObject): TModelMetadata;
 
 implementation
 
@@ -179,6 +181,68 @@ begin
   finally Ids.Free; List.Free end;
 end;
 
+function MetadataToJson(const M: TModelMetadata): TJSONObject;
+var X: TModelModality; A, B: TJSONArray;
+begin
+  Result := TJSONObject.Create;
+  Result.AddPair('publishedAt', TJSONNumber.Create(Double(M.PublishedAt)));
+  Result.AddPair('modelUpdatedAt', TJSONNumber.Create(Double(M.ModelUpdatedAt)));
+  Result.AddPair('knowledgeCutoff', TJSONNumber.Create(Double(M.KnowledgeCutoff)));
+  Result.AddPair('contextTokens', TJSONNumber.Create(M.ContextTokens));
+  Result.AddPair('maxOutputTokens', TJSONNumber.Create(M.MaxOutputTokens));
+  Result.AddPair('status', M.Status);
+  Result.AddPair('shutdownAt', TJSONNumber.Create(Double(M.ShutdownAt)));
+  Result.AddPair('shutdownKnown', TJSONBool.Create(M.ShutdownKnown));
+  Result.AddPair('modalitiesKnown', TJSONBool.Create(M.ModalitiesKnown));
+  A := TJSONArray.Create; B := TJSONArray.Create;
+  Result.AddPair('inputModalities', A); Result.AddPair('outputModalities', B);
+  for X := Low(TModelModality) to High(TModelModality) do begin
+    if X in M.InputModalities then A.Add(Ord(X));
+    if X in M.OutputModalities then B.Add(Ord(X));
+  end;
+  Result.AddPair('sourceURL', M.SourceURL);
+  Result.AddPair('retrievedAt', TJSONNumber.Create(Double(M.RetrievedAt)));
+end;
+
+function MetadataFromJson(const O: TJSONObject): TModelMetadata;
+var V: TJSONValue;
+  function DateValue(const Key: string): Double;
+  begin
+    Result := 0; V := O.GetValue(Key);
+    if V is TJSONNumber then begin
+      Result := TJSONNumber(V).AsDouble;
+      if IsNan(Result) or IsInfinite(Result) or (Result < 0) or (Result > 2958465) then Result := 0;
+    end;
+  end;
+  function CountValue(const Key: string): Int64;
+  begin
+    Result := 0; V := O.GetValue(Key);
+    if V is TJSONNumber then
+      if not TryStrToInt64(V.Value, Result) or (Result < 0) or (Result > 10000000000) then Result := 0;
+  end;
+  function BoolValue(const Key: string): Boolean;
+  begin V := O.GetValue(Key); Result := (V is TJSONBool) and TJSONBool(V).AsBoolean end;
+  function StringValue(const Key: string): string;
+  begin V := O.GetValue(Key); if V is TJSONString then Result := V.Value else Result := '' end;
+  function Modalities(const Key: string): TModelModalities;
+  var A: TJSONArray; X: TJSONValue; N: Integer;
+  begin
+    Result := []; V := O.GetValue(Key); if not (V is TJSONArray) then Exit;
+    A := TJSONArray(V);
+    for X in A do if (X is TJSONNumber) and TryStrToInt(X.Value, N) and (N >= 0) and (N <= 3) then Include(Result, TModelModality(N));
+  end;
+begin
+  Result := Default(TModelMetadata); if O = nil then Exit;
+  Result.PublishedAt := DateValue('publishedAt'); Result.ModelUpdatedAt := DateValue('modelUpdatedAt');
+  Result.KnowledgeCutoff := DateValue('knowledgeCutoff'); Result.ContextTokens := CountValue('contextTokens');
+  Result.MaxOutputTokens := CountValue('maxOutputTokens'); Result.Status := StringValue('status');
+  if (Result.Status <> 'active') and (Result.Status <> 'deprecated') and (Result.Status <> 'shutdown') then Result.Status := '';
+  Result.ShutdownAt := DateValue('shutdownAt'); Result.ShutdownKnown := BoolValue('shutdownKnown');
+  Result.ModalitiesKnown := BoolValue('modalitiesKnown');
+  Result.InputModalities := Modalities('inputModalities'); Result.OutputModalities := Modalities('outputModalities');
+  Result.SourceURL := StringValue('sourceURL'); Result.RetrievedAt := DateValue('retrievedAt');
+end;
+
 function ModelPriceCatalogToJson(const ACatalog: TModelPriceCatalog): TJSONObject;
 var Arr: TJSONArray; O: TJSONObject; M: TModelReference;
 begin
@@ -193,6 +257,7 @@ begin
     O.AddPair('inputPerMillion', TJSONNumber.Create(M.InputPerMillion));
     O.AddPair('outputPerMillion', TJSONNumber.Create(M.OutputPerMillion));
     O.AddPair('intelligence', TJSONNumber.Create(M.Intelligence));
+    O.AddPair('metadata', MetadataToJson(M.Metadata));
   end;
 end;
 
@@ -229,6 +294,7 @@ begin
          IsNan(M.OutputPerMillion) or IsInfinite(M.OutputPerMillion) or (M.OutputPerMillion < 0) or
          IsNan(D) or IsInfinite(D) or (D < -1) or (D > 1000) or (Frac(D) <> 0) then raise EConvertError.Create('Invalid values');
       M.Intelligence := Trunc(D);
+      try if O.GetValue('metadata') is TJSONObject then M.Metadata := MetadataFromJson(TJSONObject(O.GetValue('metadata'))) except M.Metadata := Default(TModelMetadata) end;
       if IDs.ContainsKey(M.ModelId) then raise EConvertError.Create('Duplicate model');
       IDs.Add(M.ModelId, True); L.Add(M);
     end;

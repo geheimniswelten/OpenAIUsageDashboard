@@ -5,7 +5,7 @@ interface
 uses
   System.Classes, System.Types, System.UITypes,
   FMX.Types, FMX.Graphics, FMX.Controls, FMX.Layouts, FMX.Objects, FMX.StdCtrls,
-  Dashboard.Model, Dashboard.DetailLayout;
+  Dashboard.Model, Dashboard.DetailLayout, Dashboard.ModelReference;
 
 type
   TDashboardDetails = class(TLayout)
@@ -24,6 +24,7 @@ type
     function NewLabel(AParent: TFmxObject; const AText: string;
       const ASize: Single; const ABold: Boolean = False): TLabel;
     procedure AddRow(const AName: string; const ACaptions, AValues: array of string);
+    procedure AddPriceMetadata(const AModel: TModelReference);
     procedure LayoutRows;
   protected
     procedure Resize; override;
@@ -40,7 +41,7 @@ type
 
 implementation
 
-uses System.SysUtils, System.Math, System.DateUtils, Dashboard.ModelReference;
+uses System.SysUtils, System.Math, System.DateUtils, Dashboard.ModalityIcons;
 
 const
   PanelColor = TAlphaColor($FF0B2018);
@@ -184,6 +185,61 @@ begin
   FRows[N] := Row;
 end;
 
+procedure TDashboardDetails.AddPriceMetadata(const AModel: TModelReference);
+var
+  Row: TRectangle;
+  Icons: TModelModalityIcons;
+  Field: TText;
+  I: Integer;
+  Values: array[0..5] of string;
+  function DateText(const ADate: TDateTime): string;
+  begin
+    if ADate > 0 then Result := FormatDateTime('dd.mm.yyyy', ADate) else Result := '–';
+  end;
+begin
+  if Length(FRows) = 0 then Exit;
+  Row := FRows[High(FRows)];
+  Values[0] := 'Veröffentlicht: ' + DateText(AModel.Metadata.PublishedAt);
+  Values[1] := 'Wissensstand: ' + DateText(AModel.Metadata.KnowledgeCutoff);
+  Values[2] := 'Modellupdate: ' + DateText(AModel.Metadata.ModelUpdatedAt);
+  if AModel.Metadata.ContextTokens > 0 then
+    Values[3] := 'Kontext: ' + Number(AModel.Metadata.ContextTokens) + ' Tokens'
+  else
+    Values[3] := 'Kontext: –';
+  Values[4] := 'Status: –';
+  if AModel.Metadata.Status = 'active' then Values[4] := 'Status: Aktuell';
+  if AModel.Metadata.Status = 'deprecated' then Values[4] := 'Status: Abgekündigt';
+  if AModel.Metadata.Status = 'shutdown' then Values[4] := 'Status: Abgeschaltet';
+  Values[5] := 'Abschaltung: ' + DateText(AModel.Metadata.ShutdownAt);
+  if (AModel.Metadata.ShutdownAt = 0) and AModel.Metadata.ShutdownKnown then
+    Values[5] := 'Abschaltung: nicht angekündigt';
+  for I := 0 to High(Values) do
+  begin
+    Field := TText.Create(Row);
+    Field.Parent := Row;
+    Field.Tag := 100 + I;
+    Field.Text := Values[I];
+    Field.TextSettings.Font.Size := 12;
+    Field.TextSettings.FontColor := MutedColor;
+    Field.TextSettings.HorzAlign := TTextAlign.Leading;
+    Field.TextSettings.VertAlign := TTextAlign.Leading;
+    Field.HitTest := False;
+    Field.WordWrap := True;
+    if (I >= 4) and ((AModel.Metadata.ShutdownAt > 0) or
+      (AModel.Metadata.Status = 'deprecated') or (AModel.Metadata.Status = 'shutdown')) then
+    begin
+      Field.TextSettings.FontColor := TAlphaColor($FFFFD166);
+      if (AModel.Metadata.Status = 'shutdown') or ((AModel.Metadata.ShutdownAt > 0) and
+        (DateOf(AModel.Metadata.ShutdownAt) <= DateOf(TTimeZone.Local.ToUniversalTime(Now)))) then
+        Field.TextSettings.FontColor := TAlphaColor($FFFF7D7D);
+    end;
+  end;
+  Icons := TModelModalityIcons.Create(Row);
+  Icons.Parent := Row;
+  Icons.Tag := 200;
+  Icons.Metadata := AModel.Metadata;
+end;
+
 procedure TDashboardDetails.Refresh;
 var
   I: Integer;
@@ -248,10 +304,12 @@ begin
           Score := '–';
           if Models[I].Intelligence >= 0 then Score := IntToStr(Models[I].Intelligence);
           AddRow(Models[I].Name, ['Eingabe', 'Ausgabe', 'Index'], [InputPrice, OutputPrice, Score]);
+          AddPriceMetadata(Models[I]);
         end;
         FFooter.Text := 'OpenAI-Preise · Stand ' + FormatDateTime('dd.mm.yyyy', FSnapshot.PriceCatalog.UpdatedAt) +
           ' · ' + FSnapshot.PriceCatalog.StatusText + sLineBreak +
-          ModelReferenceIndex + ' · Indexstand ' + ModelReferenceDate + ' · fehlender Index: –';
+          ModelReferenceIndex + ' · Indexstand ' + ModelReferenceDate + sLineBreak +
+          'Symbole: Text · Bild · Audio · Video. IN = Eingabe, OUT = Ausgabe. Fehlende Angaben: –';
       end;
   end;
   if Length(FRows) = 0 then
@@ -262,38 +320,75 @@ end;
 
 procedure TDashboardDetails.LayoutRows;
 var
-  I, J, Count: Integer;
+  I, J, Count, MetaColumns, MetaRows, Index: Integer;
   Row: TRectangle;
-  LabelControl: TControl;
-  CellWidth, ListWidth: Single;
+  Control: TControl;
+  CellWidth, ListWidth, Y, RowHeight, MetaWidth: Single;
+  SideIcons: Boolean;
 begin
   if FScroll = nil then Exit;
   ListWidth := Max(1, FScroll.Width - 20);
+  Y := 0;
   for I := 0 to High(FRows) do
   begin
     Row := FRows[I];
-    Row.SetBounds(0, I * 112, ListWidth, 104);
-    TControl(Row.Children[0]).SetBounds(12, 8, ListWidth - 24, 40);
     Count := (Row.ChildrenCount - 1) div 2;
+    RowHeight := 104;
+    MetaColumns := 1;
+    SideIcons := ListWidth >= 340;
+    if (FKind = dkPrices) and (Row.ChildrenCount > 7) then
+    begin
+      Count := 3;
+      if ListWidth >= 700 then MetaColumns := 2;
+      MetaRows := 6 div MetaColumns;
+      RowHeight := 108 + MetaRows * 23 + 8;
+      if not SideIcons then RowHeight := RowHeight + 80;
+    end;
+    Row.SetBounds(0, Y, ListWidth, RowHeight);
+    TControl(Row.Children[0]).SetBounds(12, 8, ListWidth - 24, 40);
     if Count <= 0 then Continue;
     CellWidth := (ListWidth - 24) / Count;
     for J := 0 to Count - 1 do
     begin
-      LabelControl := TControl(Row.Children[1 + J * 2]);
-      LabelControl.SetBounds(12 + J * CellWidth, 49, CellWidth - 6, 17);
-      LabelControl := TControl(Row.Children[2 + J * 2]);
-      LabelControl.SetBounds(12 + J * CellWidth, 67, CellWidth - 6, 32);
+      TControl(Row.Children[1 + J * 2]).SetBounds(12 + J * CellWidth, 49, CellWidth - 6, 17);
+      TControl(Row.Children[2 + J * 2]).SetBounds(12 + J * CellWidth, 67, CellWidth - 6, 32);
     end;
+    if (FKind = dkPrices) and (Row.ChildrenCount > 7) then
+    begin
+      MetaWidth := ListWidth - 24;
+      if SideIcons then MetaWidth := MetaWidth - 152;
+      for J := 7 to Row.ChildrenCount - 1 do
+        if Row.Children[J] is TControl then
+        begin
+          Control := TControl(Row.Children[J]);
+          if (Control.Tag >= 100) and (Control.Tag < 106) then
+          begin
+            Index := Control.Tag - 100;
+            Control.SetBounds(12 + (Index mod MetaColumns) * (MetaWidth / MetaColumns),
+              108 + (Index div MetaColumns) * 23, MetaWidth / MetaColumns - 6, 22);
+          end
+          else if Control.Tag = 200 then
+          begin
+            if SideIcons then
+              Control.SetBounds(ListWidth - 146, 108, 134, 76)
+            else
+              Control.SetBounds(12, RowHeight - 82, 134, 76);
+          end;
+        end;
+    end;
+    Y := Y + RowHeight + 8;
   end;
   FScroll.RealignContent;
 end;
 
 procedure TDashboardDetails.FitIn(const AViewport: TRectF);
-var Margin, W, H: Single;
+var Margin, W, H, MaxWidth, FooterHeight: Single;
 begin
   if FScroll = nil then Exit;
   Margin := Min(16, Max(0, Min(AViewport.Width, AViewport.Height) / 30));
-  W := Max(1, Min(860, AViewport.Width - 2 * Margin));
+  MaxWidth := 860;
+  if FKind = dkPrices then MaxWidth := 1040;
+  W := Max(1, Min(MaxWidth, AViewport.Width - 2 * Margin));
   H := Max(1, Min(780, AViewport.Height - 2 * Margin));
   FPanel.SetBounds(AViewport.Left + (AViewport.Width - W) / 2,
     AViewport.Top + (AViewport.Height - H) / 2, W, H);
@@ -301,9 +396,12 @@ begin
   FClose.SetBounds(Max(0, W - 126), 16, 108, 38);
   FSubtitle.SetBounds(18, 76, Max(1, W - 36), 44);
   FSubtitle.TextSettings.FontColor := MutedColor;
-  FFooter.SetBounds(18, Max(120, H - 68), Max(1, W - 36), 60);
+  FooterHeight := 60;
+  if FKind = dkPrices then FooterHeight := 92;
+  if (FKind = dkPrices) and (W < 600) then FooterHeight := 116;
+  FFooter.SetBounds(18, Max(120, H - FooterHeight - 8), Max(1, W - 36), FooterHeight);
   FFooter.TextSettings.FontColor := MutedColor;
-  FScroll.SetBounds(18, 124, Max(1, W - 36), Max(1, H - 204));
+  FScroll.SetBounds(18, 124, Max(1, W - 36), Max(1, H - FooterHeight - 144));
   LayoutRows;
 end;
 

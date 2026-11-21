@@ -31,6 +31,7 @@ type
   public
     constructor Create(const ASnapshot: TUsageSnapshot);
     function SettingsHitRect(const ARect: TRectF): TRectF;
+    function RefreshHitRect(const ARect: TRectF): TRectF;
     procedure Render(const ACanvas: TCanvas; const ARect: TRectF);
     procedure RenderCompanion(const ACanvas: TCanvas; const ARect: TRectF;
       const ARevealed: Boolean; const ASecondsRemaining: Integer);
@@ -153,15 +154,26 @@ begin
   FModelReferences := GetModelReferences;
 end;
 
-function TDashboardRenderer.SettingsHitRect(const ARect: TRectF): TRectF;
+function TDashboardRenderer.RefreshHitRect(const ARect: TRectF): TRectF;
 var
   Scale, Margin: Single;
 begin
   Scale := Clamp(Min(ARect.Width / 1920, ARect.Height / 1080), 0.62, 1.35);
   Margin := Clamp(ARect.Width * 0.019, 12, 36);
   Result := TRectF.Create(ARect.Right - Margin - 440 * Scale,
-    ARect.Top + 7 * Scale, ARect.Right - Margin,
+    ARect.Top + 10 * Scale, ARect.Right - Margin,
     ARect.Top + 83 * Scale);
+end;
+
+function TDashboardRenderer.SettingsHitRect(const ARect: TRectF): TRectF;
+var
+  Panel: TRectF;
+  Scale: Single;
+begin
+  Panel := RefreshHitRect(ARect);
+  Scale := Clamp(Min(ARect.Width / 1920, ARect.Height / 1080), 0.62, 1.35);
+  Result := TRectF.Create(Panel.Right - 44 * Scale, Panel.Top + 2 * Scale,
+    Panel.Right - 5 * Scale, Panel.Top + 38 * Scale);
 end;
 
 procedure TDashboardRenderer.SetFont(const ACanvas: TCanvas; const ASize: Single;
@@ -234,8 +246,10 @@ begin
   ACanvas.Fill.Color := LimitColor(IfThen(SameText(Status, 'Aktuell'), 0, 80));
   ACanvas.FillEllipse(Dot, 1);
   Text(ACanvas, TRectF.Create(Dot.Right + 5 * FScale, ARect.Top,
-    StatusPanel.Right - 20 * FScale, ARect.Top + 22 * FScale), Status, 12, CText, True,
+    StatusPanel.Right - 52 * FScale, ARect.Top + 22 * FScale), Status + ' ↻', 12, CText, True,
     TTextAlign.Leading);
+  Text(ACanvas, TRectF.Create(StatusPanel.Right - 44 * FScale, StatusPanel.Top + 2 * FScale,
+    StatusPanel.Right - 5 * FScale, StatusPanel.Top + 38 * FScale), '⚙', 18, CMuted, False, TTextAlign.Center);
   if FSnapshot.LastUpdated > 0 then
     Stamp := 'Stand ' + FormatDateTime('dd.mm.yyyy, hh:nn:ss', FSnapshot.LastUpdated)
   else

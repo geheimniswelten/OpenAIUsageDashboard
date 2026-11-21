@@ -562,3 +562,19 @@ Session-Flags, Abbruch, Nachrichtenweiterleitung sowie Entfernen und erneutes
 Installieren. `--halt` prüft zusätzlich die vorgezogene Exit-Bereinigung.
 Die Tests senden Nachrichten ausschließlich an eigene Testfenster; sie lösen
 kein echtes Herunterfahren aus. Win64-Build und Vorschau wurden ebenfalls geprüft.
+
+## Ergänzende Modelldaten
+
+Im vollständigen Preisvergleich stehen Veröffentlichung, Wissensstand, Modellupdate
+(sofern ausdrücklich bekannt), Kontextgröße, Modellstatus und Abschaltdatum.
+Eine Symbolspalte zeigt Text, Bild, Audio und Video getrennt nach Ein- und Ausgabe.
+Details zu Quellen und Aktualisierung: [docs/ModelMetadata.md](docs/ModelMetadata.md).
+
+## Fensteraktionen
+
+Die feste Kopfzeile der Einstellungen enthält `Close` (Einstellungen schließen),
+`_` (App minimieren) und `X` (App beenden). Sie bleibt beim Scrollen sichtbar.
+Bei schmalen Fenstern stehen die Buttons unter der Überschrift.
+Ein Klick auf den Statusbereich mit `↻` startet sofort eine Aktualisierung;
+während einer laufenden Abfrage wird keine zweite gestartet. Das Zahnrad
+öffnet die Einstellungen, ebenso wie F2.

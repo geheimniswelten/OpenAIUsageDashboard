@@ -93,6 +93,13 @@ Die ersten sechs Dienste stehen in einem Raster aus zwei Spalten und drei Zeilen
 Der Fußtext nennt ausgeblendete Dienste und gegebenenfalls deren Anzahl mit
 Nutzung. Der Snapshot und seine JSON-Übertragung behalten sämtliche Dienste.
 
+## Ergänzende Modelldaten
+
+Veröffentlichung, Wissensstand, ausdrücklich dokumentierte Modellupdates,
+Kontextgröße, Status und Abschaltdatum werden im Preislistenfenster ergänzt.
+Eine Symbolspalte unterscheidet Eingabe und Ausgabe für Text, Bild, Audio und Video.
+Quellen, unbekannte Werte und Cache-Verhalten beschreibt [ModelMetadata.md](ModelMetadata.md).
+
 ## Vollständige Listen
 
 Die gesamten Bereiche **Top API-Modelle**, **Weitere API-Dienste** und
