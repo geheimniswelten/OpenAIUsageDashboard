@@ -7,12 +7,12 @@ type
     Name: string;
     InputPerMillion: Double;
     OutputPerMillion: Double;
-    Intelligence: Integer; // -1: no comparable AA v5.0 result; never a zero score
+    Intelligence: Integer; // -1: no comparable AA v5.0.1 result; never a zero score
   end;
 
 const
-  ModelReferenceDate = '30.10.2026';
-  ModelReferenceIndex = 'AA v5.0 / max';
+  ModelReferenceDate = '20.11.2026';
+  ModelReferenceIndex = 'AA v5.0.1 / max';
 
 function GetModelReferences: TArray<TModelReference>;
 
@@ -22,9 +22,11 @@ function GetModelReferences: TArray<TModelReference>;
 const
   // Verified public reference snapshot; see docs/ModelReference.md for sources.
   // Standard API text prices, short context, no cache/tool/fast-mode surcharges.
-  // Scores are exclusively AA Intelligence Index v5.0 at max reasoning effort.
+  // Scores are exclusively AA Intelligence Index v5.0.1 at max reasoning effort.
   // Older v4 scores must not be mixed into this comparison.
-  Models: array[0..8] of TModelReference = (
+  Models: array[0..10] of TModelReference = (
+    (Name: 'GPT-6.2 Astra'; InputPerMillion: 8; OutputPerMillion: 40; Intelligence: 62),
+    (Name: 'GPT-6.2 Sol'; InputPerMillion: 2; OutputPerMillion: 10; Intelligence: 57),
     (Name: 'GPT-6 Astra'; InputPerMillion: 10; OutputPerMillion: 50; Intelligence: 57),
     (Name: 'GPT-6.1 Sol'; InputPerMillion: 2; OutputPerMillion: 10; Intelligence: 55),
     (Name: 'GPT-6.1 Terra'; InputPerMillion: 1; OutputPerMillion: 5; Intelligence: 51),

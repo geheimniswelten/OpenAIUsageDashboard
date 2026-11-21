@@ -1,6 +1,6 @@
 # Modellvergleich im Dashboard
 
-Referenzstand: **30.10.2026**. Die Werte sind in `Dashboard.ModelReference.pas`
+Referenzstand: **20.11.2026**. Die Werte sind in `Dashboard.ModelReference.pas`
 eingebunden und deshalb auch offline auf Windows und Android verfügbar.
 Dies ist ein geprüfter Datenstand, kein automatischer Abruf der Preis- oder
 Benchmark-Webseiten. Bei einer Aktualisierung müssen Werte und Standdatum
@@ -23,8 +23,10 @@ in dieser kompakten Referenz nicht eingerechnet.
 
 ## Daten und Quellen
 
-| Modell | Eingabe USD/1M | Ausgabe USD/1M | AA v5.0, max |
+| Modell | Eingabe USD/1M | Ausgabe USD/1M | AA v5.0.1, max |
 |---|---:|---:|---:|
+| GPT-6.2 Astra | 8,00 | 40,00 | 62 |
+| GPT-6.2 Sol | 2,00 | 10,00 | 57 |
 | GPT-6 Astra | 10,00 | 50,00 | 57 |
 | GPT-6.1 Sol | 2,00 | 10,00 | 55 |
 | GPT-6.1 Terra | 1,00 | 5,00 | 51 |
@@ -35,7 +37,7 @@ in dieser kompakten Referenz nicht eingerechnet.
 | GPT-5.3 Codex | 1,75 | 14,00 | – |
 | GPT-5.4 | 2,50 | 15,00 | – |
 
-Preise der vier aktuellen Modelle und GPT-5.6 Sol:
+Preise der sechs aktuellen Modelle und GPT-5.6 Sol:
 [OpenAI API Pricing](https://developers.openai.com/api/docs/pricing).
 Weitere Preisquellen:
 [GPT-5.6 Terra](https://developers.openai.com/api/docs/models/gpt-5.6-terra),
@@ -45,9 +47,13 @@ Weitere Preisquellen:
 
 Intelligence-Werte:
 [Artificial Analysis, OpenAI-Vergleich](https://artificialanalysis.ai/providers/openai),
-[GPT-6.1 Terra](https://artificialanalysis.ai/models/releases/gpt-6-1-terra),
-[GPT-6 Luna](https://artificialanalysis.ai/models/releases/gpt-6-luna).
-Es werden ausschließlich Ergebnisse des **Intelligence Index v5.0** mit
+[GPT-6.2 Astra](https://artificialanalysis.ai/models/gpt-6-2-astra),
+[GPT-6.2 Sol](https://artificialanalysis.ai/models/gpt-6-2-sol),
+[GPT-6 Astra](https://artificialanalysis.ai/models/gpt-6-astra),
+[GPT-6.1 Sol](https://artificialanalysis.ai/models/gpt-6-1-sol),
+[GPT-6.1 Terra](https://artificialanalysis.ai/models/gpt-6-1-terra),
+[GPT-6 Luna](https://artificialanalysis.ai/models/gpt-6-luna).
+Es werden ausschließlich Ergebnisse des **Intelligence Index v5.0.1** mit
 **max** Reasoning angezeigt. Der Index ist eine Punktzahl, keine Prozentangabe.
 Ältere v4-Ergebnisse werden nicht eingemischt; für ein fehlendes vergleichbares
 Ergebnis steht `–`. Die Liste beschreibt Referenzkonfigurationen, nicht die
